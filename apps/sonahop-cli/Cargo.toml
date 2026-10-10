@@ -12,4 +12,5 @@ sonahop-core = { version = "0.1.0", path = "../../crates/sonahop-core" }
 sonahop-platform-windows = { version = "0.1.0", path = "../../crates/sonahop-platform-windows" }
 
 [dev-dependencies]
+hound = "3.5.1"
 tempfile = "3.27.0"

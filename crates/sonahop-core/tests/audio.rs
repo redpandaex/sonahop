@@ -27,6 +27,7 @@ fn rejects_invalid_format_even_when_constructed_directly() {
     let format = AudioFormat {
         sample_rate: 0,
         channels: 2,
+        channel_mask: None,
     };
     assert!(decode_f32_packet(format, &[0; 8], 1, false).is_err());
 }

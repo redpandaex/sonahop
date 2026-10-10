@@ -102,7 +102,22 @@ pub fn list_output_devices() -> Result<Vec<OutputDevice>, AudioError> {
 }
 
 fn format_from_mix(mix: &WaveFormat) -> Result<AudioFormat, AudioError> {
-    AudioFormat::new(mix.get_samplespersec(), mix.get_nchannels())
+    let mut format = AudioFormat::new(mix.get_samplespersec(), mix.get_nchannels())?;
+    format.channel_mask = Some(mix.get_dwchannelmask());
+    Ok(format)
+}
+
+fn float_format_from_mix(mix: &WaveFormat) -> Result<(AudioFormat, WaveFormat), AudioError> {
+    let format = format_from_mix(mix)?;
+    let desired = WaveFormat::new(
+        32,
+        32,
+        &SampleType::Float,
+        format.sample_rate as usize,
+        usize::from(format.channels),
+        format.channel_mask,
+    );
+    Ok((format, desired))
 }
 
 /// Copy while the native buffer is borrowed. SILENT never dereferences data.
@@ -280,15 +295,7 @@ pub fn open_loopback(device_id: Option<&str>) -> Result<Box<dyn AudioCapture>, A
     // SAFETY: GetMixFormat allocates the header and its declared extension.
     let mix_bytes = unsafe { std::slice::from_raw_parts(allocation.0.cast::<u8>(), length) };
     let mix = WaveFormat::parse_from_blob_bytes(mix_bytes).map_err(platform)?;
-    let format = format_from_mix(&mix)?;
-    let desired = WaveFormat::new(
-        32,
-        32,
-        &SampleType::Float,
-        format.sample_rate as usize,
-        usize::from(format.channels),
-        None,
-    );
+    let (format, desired) = float_format_from_mix(&mix)?;
     let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
         | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
         | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
@@ -344,13 +351,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn float_capture_request_preserves_native_speaker_positions() {
+        for (channels, mask) in [(6usize, 0x60fu32), (8, 0x63f)] {
+            let mix = WaveFormat::new(32, 32, &SampleType::Float, 44_100, channels, Some(mask));
+            let (format, requested) = float_format_from_mix(&mix).unwrap();
+            assert_eq!(requested.get_dwchannelmask(), mask);
+            assert_eq!(format.channel_mask, Some(mask));
+            assert_eq!(requested.get_nchannels(), channels as u16);
+            assert_eq!(requested.get_samplespersec(), 44_100);
+        }
+    }
+
+    #[test]
     fn mix_format_preserves_rate_and_all_channels() {
         let mix = WaveFormat::new(32, 32, &SampleType::Float, 44_100, 6, None);
         assert_eq!(
             format_from_mix(&mix).unwrap(),
             AudioFormat {
                 sample_rate: 44_100,
-                channels: 6
+                channels: 6,
+                channel_mask: Some(0x3f),
             }
         );
     }

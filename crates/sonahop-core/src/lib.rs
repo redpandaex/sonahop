@@ -18,14 +18,14 @@ pub enum AudioError {
     UnsupportedPlatform,
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Wav(#[from] hound::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct AudioFormat {
     pub sample_rate: u32,
     pub channels: u16,
+    /// WAVE speaker-position bits, when known; no platform API types.
+    pub channel_mask: Option<u32>,
 }
 
 impl AudioFormat {
@@ -33,6 +33,7 @@ impl AudioFormat {
         let format = Self {
             sample_rate,
             channels,
+            channel_mask: None,
         };
         format.validate()?;
         Ok(format)

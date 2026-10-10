@@ -7,3 +7,8 @@
 *.p12
 .env
 .env.local
+
+node_modules/
+/apps/sonahop-ui/dist/
+/output/playwright/
+/.playwright-cli/

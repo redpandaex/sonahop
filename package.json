@@ -1,0 +1,24 @@
+{
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.25.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@11.25.0",
+  "type": "module",
+  "name": "sonahop-workspace",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter sonahop-ui tauri dev",
+    "web:dev": "pnpm --filter sonahop-ui dev",
+    "build": "pnpm --filter sonahop-ui build",
+    "typecheck": "pnpm --filter sonahop-ui typecheck",
+    "test": "pnpm --filter sonahop-ui test",
+    "desktop:build": "pnpm --filter sonahop-ui tauri build --no-bundle",
+    "android:init": "pnpm --filter sonahop-ui tauri android init --ci",
+    "android:build": "pnpm --filter sonahop-ui tauri android build --debug --apk --target aarch64"
+  },
+  "private": true
+}

@@ -1,0 +1,9 @@
+/target/
+/artifacts/
+/.superpowers/sdd/
+/.worktrees/
+*.jks
+*.keystore
+*.p12
+.env
+.env.local

@@ -6,7 +6,7 @@
 
 **Architecture:** 三个 workspace 成员：core 定义格式/采集边界和 WAV 写入；Windows 后端封装 WASAPI loopback；CLI 只装配、校验参数并控制采集生命周期。当前不创建 Tauri、网络或空 Android 后端。
 
-**Tech Stack:** Rust 2024、wasapi 0.25、hound、clap、thiserror、serde/serde_json、ctrlc；依赖通过 Cargo CLI 添加。
+**Tech Stack:** Rust 2024、wasapi 0.25、hound（测试读回）、clap、thiserror、serde/serde_json、ctrlc；依赖通过 Cargo CLI 添加。
 
 **Spec:** `docs/superpowers/specs/2026-10-10-windows-capture-design.md`
 
@@ -31,7 +31,7 @@
 
 **Files:** `Cargo.toml`、`crates/sonahop-core/`、`crates/sonahop-platform-windows/`、`apps/sonahop-cli/`、`.gitignore`。
 **Interfaces:**
-- Produces: `AudioFormat { sample_rate: u32, channels: u16 }`；`AudioError`。
+- Produces: `AudioFormat { sample_rate: u32, channels: u16, channel_mask: Option<u32> }`；`AudioError`。
 - Produces: `CapturePacket { samples: Vec<f32>, position: u64, discontinuity: bool }`。
 - Produces: `AudioCapture::format(&self) -> AudioFormat`、`read_packet(&mut self, timeout: Duration) -> Result<Option<CapturePacket>, AudioError>`、`stop(&mut self) -> Result<(), AudioError>`。
 - Produces: `decode_f32_packet(format, bytes, frame_count, silent) -> Result<Vec<f32>, AudioError>`。
@@ -80,8 +80,8 @@
 - [x] 写入真实启动命令、系统声音与手机麦克风的方向说明、阶段边界和 WAV 诊断用途；确认命令可以执行。
 - [x] 运行 `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 和 `cargo build --release --workspace`，逐项记录结果。
 - [x] 在本机运行 `cargo run -p sonahop -- devices --json`，记录播放端点及默认选择；此步骤不录音。
-- [ ] 用户授权后才播放短测试音并采集 WAV，读取文件头、帧数和信号峰值；未授权则作为验收待办明确列出，不伪称通过。
-- [ ] 进行一次独立分支审查；修复重要问题并通过对应测试，记录其余意见。
+- [x] 用户授权后才播放短测试音并采集 WAV，读取文件头、帧数和信号峰值；未授权则作为验收待办明确列出，不伪称通过。本轮用户选择不录，后续接入 Android 时再验证。
+- [x] 进行一次独立分支审查；修复重要问题并通过对应测试，记录其余意见。
 - [ ] 汇总执行结果与实际限制，完成当前阶段的代码交付；未经请求不推送 GitHub 或分发安装包。
 
 ## Workflow follow-up

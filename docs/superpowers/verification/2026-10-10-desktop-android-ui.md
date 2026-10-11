@@ -73,4 +73,8 @@ Android 构建环境为 JDK 21、SDK 37、NDK 30.0.16248370，Gradle 9.6.1；生
 - 沿用已授权的主目录交付方式，本地快进到 main，不推送。代价：若需要撤销，可回退本地提交范围。
 
 Windows EXE 为 8,870,912 字节；Android Cargo fingerprint 确认 custom-protocol/compression，调试 APK 使用打包资源。
-主目录快进及命令检查结果待写入。
+已本地快进至 D:\code\sonahop 的 main。重新安装依赖后，主目录的 typecheck、7 个 Node 测试、前端/Windows release 构建、fmt 和 30 个 Rust 测试通过。
+离线安装缺少注册表策略元数据，改为正常 frozen-lockfile 安装，供应链策略检查通过，锁文件未改变。
+Windows GUI 已由主目录 exe 普通启动，进程窗口标题为 SonaHop，无临时 WebView2 调试参数或 9223 监听。
+用户未跟踪的 .vscode 文件哈希与交付前一致；原 playback.wav 和旧阶段产物保留。没有推送 GitHub。
+本地产物、截图和完整检查日志保留在 artifacts/ui-preview；临时 worktree 清理不影响这些文件。

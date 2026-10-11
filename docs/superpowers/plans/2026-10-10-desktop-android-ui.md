@@ -47,11 +47,11 @@
 ### Task 3: Windows 与 Android 原生界面
 **Files:** 品牌 SVG、src-tauri/icons/、src-tauri/gen/android/、构建说明。
 **Interfaces:** 使用 Task 1/2 实际应用，不添加音频业务。
-- [ ] 用 tauri icon CLI 从代码矢量标记生成图标；tauri android init CLI 创建原生 Android 工程。
-- [ ] 用 tauri build --no-bundle 构建 Windows GUI，并实际启动核对设备枚举和界面。
-- [ ] 用 tauri android build --debug --apk --target aarch64 构建可安装 APK。Expected: 包名正确、仅 ARM64、调试签名。
-- [ ] Y700 连接时安装/启动/截图；没有设备则明确真机未测并保存 APK。未授权不卸载现有应用或丢弃数据。
-- [ ] 保存截图与忽略的构建产物；完整 Rust 测试和 Clippy 通过。提交本任务。
+- [x] 用 tauri icon CLI 从代码矢量标记生成图标；tauri android init CLI 创建原生 Android 工程。
+- [x] 用 tauri build --no-bundle 构建 Windows GUI，并实际启动核对设备枚举和界面。
+- [x] 用 tauri android build --debug --apk --target aarch64 编译；Windows 缺少符号链接权限时，复制产出的库并用 Gradle assembleArm64Debug 打包。Expected: 包名正确、仅 ARM64、调试签名。
+- [x] Y700 连接时安装/启动/截图；没有设备则明确真机未测并保存 APK。未授权不卸载现有应用或丢弃数据。
+- [x] 保存截图与忽略的构建产物；完整 Rust 测试和 Clippy 通过。提交本任务。
 
 ### Task 4: 最终验证、独立审查与交付
 **Files:** README.md、docs/superpowers/verification/2026-10-10-desktop-android-ui.md、阶段计划。

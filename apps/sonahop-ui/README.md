@@ -1,7 +1,14 @@
-# Tauri + React + Typescript
+# SonaHop UI
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Shared Windows/Android interface powered by Tauri 2 and React.
 
-## Recommended IDE Setup
+Run commands from the repository root:
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- `pnpm dev`: launch the Windows app in development mode.
+- `pnpm web:dev`: browser layout preview at http://localhost:1420.
+- `pnpm desktop:build`: build the Windows executable.
+- `pnpm android:build`: build the ARM64 debug APK.
+- `pnpm test` and `pnpm typecheck`: verify preferences and TypeScript.
+
+This stage enumerates real Windows output devices and stores local preferences.
+Audio connections, playback and microphone capture are not enabled yet.

@@ -1,6 +1,6 @@
 # Windows and Android UI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 交付可启动的 Windows GUI 与 ARM64 Android 调试 APK，展示实际设备选择和双端音频控制界面。
 **Architecture:** 共用 React/TypeScript 交互与偏好，两种平台布局；Tauri Rust 提供平台信息和后台线程中的 Windows 只读设备枚举。
@@ -27,10 +27,10 @@
 - Produces: UiAppInfo { platform: "windows" | "android" | "other", version: string, uiPreview: boolean }。
 - Produces: UiPlaybackDevice { id: string, name: string, isDefault: boolean }。
 - Produces: get_app_info() -> UiAppInfo；async list_playback_devices() -> Result<Vec<UiPlaybackDevice>, String>。
-- [ ] 用 pinned create-tauri-app CLI 创建 react-ts，pnpm 初始化根私有 workspace；通过 CLI 添加图标、字体及 Windows 路径依赖，移除无用 opener 插件。
-- [ ] 手工连接 Cargo/pnpm workspace 并配置应用名 SonaHop、identifier io.github.redpandaex.sonahop 和最小窗口；锁文件由 CLI 生成。
-- [ ] 实现只读桥接，Windows 枚举使用 spawn_blocking 保持 COM 所有权；Android 不调用 Windows 枚举。
-- [ ] 运行 pnpm 前端 build 与 cargo check -p sonahop-ui。Expected: 成功；没有开始音频流。提交本任务。
+- [x] 用 pinned create-tauri-app CLI 创建 react-ts，pnpm 初始化根私有 workspace；通过 CLI 添加图标、字体及 Windows 路径依赖，移除无用 opener 插件。
+- [x] 手工连接 Cargo/pnpm workspace 并配置应用名 SonaHop、identifier io.github.redpandaex.sonahop 和最小窗口；锁文件由 CLI 生成。
+- [x] 实现只读桥接，Windows 枚举使用 spawn_blocking 保持 COM 所有权；Android 不调用 Windows 枚举。
+- [x] 运行 pnpm 前端 build 与 cargo check -p sonahop-ui。Expected: 成功；没有开始音频流。提交本任务。
 
 ### Task 2: 双端布局与共享交互
 **Files:** src/App.tsx、src/screens/、src/components/、src/lib/bridge.ts、src/lib/preferences.ts、src/lib/preferences.test.ts、src/App.css。
@@ -38,11 +38,11 @@
 - Consumes: Task 1 平台信息和设备 DTO。
 - Produces: Preferences { version: 1, mode: "listen" | "microphone", volume: number, theme: "light" | "dark" | "system", sourceId: string, computerName: string, computerAddress: string }。
 - Produces: readPreferences(raw: string | null): Preferences，序列化/保存失败不会使界面崩溃。
-- [ ] 先写偏好测试并观察 RED：null/损坏 JSON 恢复默认；非法模式/主题拒绝；音量非有限值恢复 70、有效数值限制 0..100；未知版本恢复默认；保存/读回选择不变。
-- [ ] 实现偏好与桥接、真实错误和浏览器示例标识；运行 Node 原生测试。Expected: 边界通过。
-- [ ] 完成暖白/深色桌面、手机/平板布局；模式互斥、真实来源选择/刷新、独立音量设置、电脑信息编辑和主题可用。
-- [ ] 用 Playwright CLI 检查交互、键盘、窄屏无溢出、深浅主题、设备错误与不能开始假共享；截图查看后修正实际问题。
-- [ ] 运行 pnpm test / typecheck / build。Expected: 成功。提交本任务。
+- [x] 先写偏好测试并观察 RED：null/损坏 JSON 恢复默认；非法模式/主题拒绝；音量非有限值恢复 70、有效数值限制 0..100；未知版本恢复默认；保存/读回选择不变。
+- [x] 实现偏好与桥接、真实错误和浏览器示例标识；运行 Node 原生测试。Expected: 边界通过。
+- [x] 完成暖白/深色桌面、跟随系统主题的手机/平板布局；模式互斥、真实来源选择/刷新、独立音量设置、电脑信息编辑和主题可用。
+- [x] 用 Playwright CLI 检查交互、键盘、窄屏无溢出、深浅主题、设备错误与不能开始假共享；截图查看后修正实际问题。
+- [x] 运行 pnpm test / typecheck / build。Expected: 成功。提交本任务。
 
 ### Task 3: Windows 与 Android 原生界面
 **Files:** 品牌 SVG、src-tauri/icons/、src-tauri/gen/android/、构建说明。

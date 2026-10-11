@@ -12,7 +12,7 @@
 
 也可以在文件管理器中双击 `target/release/sonahop-ui.exe`。
 Android 安装包位于 `artifacts/ui-preview/sonahop-android-debug.apk`，复制到手机或平板后安装即可。
-这是 ARM64 调试版，约 19 MB；本轮按用户选择提供 APK，尚未安装到 Y700 真机。
+这是 ARM64 调试版，约 19 MB；用户已在 Windows 和 Y700 上打开界面；设备搜索、连接与音频仍未接入。
 
 **当前是界面预览。** Windows 可以选择和刷新真实播放设备、切换收听/麦克风模式和主题。
 Android 提供电脑信息编辑、模式切换、音量偏好和设置页，手机与平板分别适配；外观跟随系统。
@@ -105,6 +105,32 @@ Ctrl+C 停止采集并收尾文件，返回 130；读取错误也会尝试停止
 输出摘要包含写入帧数、峰值、不连续次数及窗口时长；没有音频帧与全零音频分别报告。
 用户已手动播放歌曲验证默认 G24H2 loopback 采集成功；这不代表 Android 音频链路或音量独立已经通过。
 
+## 前端工具与组件
+
+前端采用 Biome 2.5.15、Tailwind CSS 4.3.3（Vite 插件）和 shadcn/ui 的 Radix 组件。
+已生成并接入 Button、Input、Badge；组件源码位于 apps/sonahop-ui/src/components/ui，可按项目需求修改。
+Tailwind 与原有布局 CSS 共用暖白/深色主题变量；主题仍使用根元素 data-theme。
+
+```powershell
+pnpm format       # 格式化前端源码
+pnpm format:check # 只检查格式
+pnpm lint         # 静态规则检查
+pnpm check        # 格式、规则、导入检查
+pnpm check:fix    # 应用安全修正
+```
+
+新增组件使用官方 CLI，例如：
+
+```powershell
+pnpm dlx shadcn@latest add dialog -c apps/sonahop-ui
+```
+
+Biome 配置位于 apps/sonahop-ui/biome.json，启用 Tailwind 指令解析，不处理 Rust/Android 生成工程。
+前端扩展推荐包含 Biome 和 Tailwind CSS IntelliSense；用户根目录的 VS Code 设置保持现有内容。
+
+按用户选择，工具链接入后尚未运行测试、构建或交互验证。用户先运行 `pnpm check`、`pnpm build`，再运行 `pnpm web:dev`。
+浏览器打开 Windows / Android 预览链接，检查两种主题、模式切换、电脑信息编辑和音量滑块。
+现有 exe/APK 是此前构建的图标修正版；本次组件工具改动尚未重新打包。
 ## 检查与结构
 
 ```powershell
@@ -126,4 +152,4 @@ cargo test --workspace
 
 按 [界面阶段设计](docs/superpowers/specs/2026-10-10-desktop-android-ui-design.md)、[执行计划](docs/superpowers/plans/2026-10-10-desktop-android-ui.md)推进。
 [本阶段验证记录](docs/superpowers/verification/2026-10-10-desktop-android-ui.md)区分浏览器、原生 Windows、APK 构建和未执行的 Android 真机测试。
-旧 OpenSpec 保留为需求参考；Linux/macOS 会在有真实后端时接入。
+Linux/macOS 会在有真实后端时接入。

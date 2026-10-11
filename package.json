@@ -18,7 +18,12 @@
     "test": "pnpm --filter sonahop-ui test",
     "desktop:build": "pnpm --filter sonahop-ui tauri build --no-bundle",
     "android:init": "pnpm --filter sonahop-ui tauri android init --ci",
-    "android:build": "pnpm --filter sonahop-ui tauri android build --debug --apk --target aarch64"
+    "android:build": "pnpm --filter sonahop-ui tauri android build --debug --apk --target aarch64",
+    "format": "pnpm --filter sonahop-ui format",
+    "format:check": "pnpm --filter sonahop-ui format:check",
+    "lint": "pnpm --filter sonahop-ui lint",
+    "check": "pnpm --filter sonahop-ui check",
+    "check:fix": "pnpm --filter sonahop-ui check:fix"
   },
   "private": true
 }

@@ -78,3 +78,5 @@ Windows EXE 为 8,870,912 字节；Android Cargo fingerprint 确认 custom-proto
 Windows GUI 已由主目录 exe 普通启动，进程窗口标题为 SonaHop，无临时 WebView2 调试参数或 9223 监听。
 用户未跟踪的 .vscode 文件哈希与交付前一致；原 playback.wav 和旧阶段产物保留。没有推送 GitHub。
 本地产物、截图和完整检查日志保留在 artifacts/ui-preview；临时 worktree 清理不影响这些文件。
+
+后续更新：用户已在 Windows 和 Y700 打开应用。上面的 APK 哈希是初次交付记录；当前图标修正包、资源验证及规划简化见 [2026-10-11 修正记录](2026-10-11-ui-fixes.md)。

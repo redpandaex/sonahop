@@ -1,0 +1,56 @@
+# Windows / Android UI 阶段验证
+
+完成日期：2026-10-11。设计/计划文件沿用启动阶段的 2026-10-10 文件名。
+本阶段按用户最新要求先交付界面，暂未实现网络、收听、麦克风服务或音量独立的音频路径。
+
+## 已执行
+
+| 范围 | 实际结果 |
+| --- | --- |
+| 前端 | pnpm typecheck、7 个 Node 偏好边界测试和生产 build 通过；测试先观察 RED 再实现 GREEN |
+| Rust | fmt、Clippy workspace/all-targets/-D warnings 通过；30 个原有测试全部通过，GUI 无新增 Rust 单元测试 |
+| 浏览器 | Playwright CLI 检查 320×740、360×800、800×1280、880×660、1280×850，无横向溢出；手机底部控件滚动后不被导航遮挡 |
+| 交互 | 两模式切换、电脑表单保存、音量键盘调整、重载恢复、设备选择/刷新、Windows 深浅/系统主题及 Android 跟随系统主题 |
+| 失败路径 | 模拟原生枚举失败，错误可见、来源禁用且不回退到示例；当前所有音频启动动作均不可用 |
+| Windows 原生 | tauri build --no-bundle 成功；实际启动 release GUI，Tauri IPC 返回 G24H2 默认输出和 Realtek Digital Output；选择、刷新、模式和原生 setTheme 调用通过 |
+| Android | Tauri CLI 成功编译 ARM64 Rust 库；本机符号链接权限不足，用复制库 + 官方 Gradle assembleArm64Debug 完成打包 |
+| APK 校验 | apksigner verify 成功；io.github.redpandaex.sonahop / 0.1.0 / versionCode 1000；debuggable；仅 arm64-v8a；不声明 RECORD_AUDIO |
+
+浏览器截图与原生截图已查看。Android 截图是浏览器布局预览，不是手机真机截图。
+Windows 测试使用临时 WebView2 本机调试端口检查当前应用，交付时恢复普通启动方式。
+没有录制声音、播放测试音、改变系统默认播放设备/音量/防火墙或开启 Windows 开发者模式。
+
+## 本地产物
+
+- Windows：target/release/sonahop-ui.exe。
+- Android：artifacts/ui-preview/sonahop-android-debug.apk，19,182,160 字节（约 19 MB）。
+- APK SHA256：066CEC13100A650DBD31B91E2FEFC75C3730C5F9EB395355358B621886551BE3。
+- APK 内 Rust 库 SHA256：3D301A5A4F50AB8CB74728CB388230A54B639DF0192B8DF991B48588C1901906，与 Gradle stripped_native_libs 中的当前输出一致。
+- 完整本地 APK 元数据：artifacts/ui-preview/apk-evidence.json。
+- 截图：artifacts/ui-preview/windows-native.png、windows-native-microphone.png、windows-native-settings.png、android-tablet.png、android-tablet-dark.png、android-phone-top.png、android-phone-controls.png。
+
+Android 原始库保留全部调试符号；Gradle 对安装包去除符号。初始 APK 约 132 MB，清理旧增量打包空间后为上述约 19 MB。
+完整 Rust 库只依赖 Android 系统 libandroid/libdl/liblog/libm/libc，未遗漏额外第三方 .so。
+Android 构建环境为 JDK 21、SDK 37、NDK 30.0.16248370，Gradle 9.6.1；生成模板的 Java/Kotlin/Gradle 弃用警告保留，未修改上游生成代码来掩盖警告。
+
+## 未执行与后续
+
+用户选择本轮先提供 APK，之后连接 Y700。未声称 Android 原生启动、状态栏/导航栏、系统返回、旋转、键盘和两台真机布局通过。
+手机麦克风、后台服务、网络传输、同时双接收端及电脑静音时远端仍播放均未实现，本轮预览说明与禁用按钮体现此边界。
+下一音频阶段以联想 Y700 四代 / Android 16 为首轮真机，接入后再验证电脑静音时仍能收听。
+
+## 执行取舍
+
+按以下 ledger 裁定执行，保留顺序和判断失误的代价：
+
+1. 用户优先 Windows/Android GUI，交付真实 Windows 枚举与明确预览状态；代价：音频传输留到下一阶段。
+2. 重命名后原生 worktree API 无法识别仓库，用忽略目录中的 Git worktree，保留用户 .vscode；代价：需要手动清理该 worktree。
+3. design-taste-frontend 排除产品界面，改用 minimalist-ui；代价：视觉 token 需要时可再调整。
+4. Tauri Android 不支持 setTheme，Android 跟随系统，Windows 提供三种主题；代价：未来自选 Android 主题需要原生系统栏桥接。
+5. 本机缺少符号链接权限，保留 OS 设置，复制已成功编译的库并用 Gradle 打包；代价：后续标准 CLI 需要开发者模式，或按 README 的复制/打包步骤执行，并避免使用旧库。
+
+辅助任务完成脚本因静默 fmt 输出返回失败，最终采用有输出的实际 APK 校验作为 Task 3 完成检查；Windows PowerShell 5 的模块环境不兼容，改用现有 PowerShell 7 运行该本地校验。
+
+## 独立审查与主目录交付
+
+待最后一次独立分支审查及本地快进后的检查结果更新。

@@ -56,7 +56,7 @@
 ### Task 4: 最终验证、独立审查与交付
 **Files:** README.md、docs/superpowers/verification/2026-10-10-desktop-android-ui.md、阶段计划。
 **Interfaces:** 使用前三任务实际源码与构建文件。
-- [ ] 写根目录开发命令、直接启动 exe 与安装 APK 的步骤；明确当前可操作内容和预览边界。
-- [ ] 记录实际 Node/Rust 检查、浏览器视口截图、Windows 和 APK 构建、原生运行与真机状态。
+- [x] 写根目录开发命令、直接启动 exe 与安装 APK 的步骤；明确当前可操作内容和预览边界。
+- [x] 记录实际 Node/Rust 检查、浏览器视口截图、Windows 和 APK 构建、原生运行与真机状态。
 - [ ] 进行一次独立分支审查，修复重要问题；其余建议明确保留。
 - [ ] 本地快进交付主目录，保留用户文件、必要产物及完整执行取舍；不推送 GitHub。

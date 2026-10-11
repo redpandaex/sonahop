@@ -25,7 +25,10 @@
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/specs/2026-10-10-windows-capture-design.md and the matching stage plan.
-- Build the Rust workspace and Windows output-device loopback CLI first.
-- Local WAV capture is an explicit diagnostic operation; it is not Windows microphone capture.
-- Ask the owner before recording real system audio. Synthetic tests and output-device enumeration are allowed.
+- Follow docs/superpowers/specs/2026-10-10-desktop-android-ui-design.md and the matching stage plan.
+- Deliver native Windows and Android UI previews before network audio. Windows device enumeration is real; browser examples must stay explicitly labeled.
+- Save preferences locally. Do not claim connection, playback, microphone permission, remote gain or independent audio has been implemented.
+- Windows offers light/dark/system appearance; Android follows its system theme.
+- The owner chose APK delivery only this round; physical Y700 installation/testing is deferred.
+- Keep PC-mute-independent receiving volume as the next audio stage acceptance requirement.
+- Local WAV capture remains an explicit diagnostic operation. Ask before recording real system audio; synthetic tests and output-device enumeration are allowed.

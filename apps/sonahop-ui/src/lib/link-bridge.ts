@@ -22,6 +22,7 @@ export interface LinkSnapshot {
   role: "host" | "client";
   running: boolean;
   localName: string;
+  localAddresses: string[];
   port: number;
   discovered: DiscoveredHost[];
   requests: LinkRequest[];

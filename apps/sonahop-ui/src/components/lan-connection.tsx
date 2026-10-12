@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DeviceMobileIcon, MonitorIcon, WifiHighIcon } from "@phosphor-icons/react";
+import { DeviceMobileIcon, MonitorIcon } from "@phosphor-icons/react";
 import { ErrorMessage, StatusBadge } from "./controls";
 import { parseLinkAddress } from "../lib/link-bridge";
 import type { Workbench } from "../lib/use-workbench";
@@ -16,13 +16,14 @@ export function linkStatusLabel(w: Workbench): string {
     return w.audio.snapshot?.active || w.audio.snapshot?.waiting
       ? audioStatusLabel(w)
       : "已连接 · 音频已停止";
-  if (snapshot.clientState === "awaitingApproval") return "等待服务器确认";
+  if (snapshot.clientState === "awaitingApproval") return "等待共享设备确认";
   if (snapshot.clientState === "connecting") return "正在连接";
-  if (snapshot.running) return snapshot.role === "host" ? "允许局域网发现" : "正在搜索服务器";
+  if (snapshot.running) return snapshot.role === "host" ? "允许局域网发现" : "正在搜索共享设备";
   return "局域网连接已关闭";
 }
 
 export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
+  const [copyMessage, setCopyMessage] = useState("");
   const { snapshot, busy, available, error } = w.link;
   const running = snapshot?.running ?? false;
   const disabled = !available || !snapshot || busy || w.audio.busy || w.roleBusy || !w.roleReady;
@@ -34,41 +35,73 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       </div>
       <div className="lan-service-row">
         <div>
-          <h3>{running ? snapshot?.localName : "允许播放器发现这台服务器"}</h3>
+          <h3>{snapshot?.localName || "这台设备"}</h3>
           <p>
-            {running
-              ? `连接端口 ${snapshot?.port}`
-              : "主动开启后，同一局域网内的设备可以请求连接。"}
+            {running ? "发现已自动开启，可在其它设备的收听页找到这里。" : "正在自动准备局域网发现…"}
           </p>
         </div>
-        <Button
-          className={running ? "secondary-button" : "primary-button"}
-          role="switch"
-          aria-checked={running}
-          aria-label="允许局域网发现"
-          disabled={disabled}
-          onClick={() => void (running ? w.stopLink() : w.link.start())}
-        >
-          <WifiHighIcon size={18} weight="bold" />
-          {busy ? "处理中…" : running ? "停止联网" : "开启联网"}
-        </Button>
+        {!running && !w.roleBusy && (
+          <Button
+            className="secondary-button"
+            disabled={disabled}
+            onClick={() => void w.retryDiscovery()}
+          >
+            重试发现
+          </Button>
+        )}
       </div>
+      {snapshot?.localAddresses?.length ? (
+        <div className="lan-addresses">
+          <h3 className="lan-group-heading">手动连接地址</h3>
+          {snapshot.localAddresses.map((ip) => (
+            <div className="lan-address-row" key={ip}>
+              <code className="mono">
+                {ip}:{snapshot.port}
+              </code>
+              <Button
+                className="secondary-button"
+                aria-label={"复制地址 " + ip}
+                onClick={() => {
+                  const address = ip + ":" + snapshot.port;
+                  if (!navigator.clipboard?.writeText) {
+                    setCopyMessage("请长按或选中地址复制。");
+                    return;
+                  }
+                  void navigator.clipboard
+                    .writeText(address)
+                    .then(() => setCopyMessage("地址已复制"))
+                    .catch(() => setCopyMessage("复制失败，请手动选择地址。"));
+                }}
+              >
+                复制
+              </Button>
+            </div>
+          ))}
+          {copyMessage && (
+            <p className="field-help" role="status">
+              {copyMessage}
+            </p>
+          )}
+        </div>
+      ) : (
+        running && <p className="field-help">正在读取可连接的局域网地址…</p>
+      )}
       {snapshot?.role === "host" && snapshot.running && snapshot.pairingCode && (
         <div className="lan-confirmation">
-          <h3>播放器连接 PIN</h3>
-          <output className="lan-code" aria-label="播放器连接 PIN">
+          <h3>收听设备连接 PIN</h3>
+          <output className="lan-code" aria-label="收听设备连接 PIN">
             {snapshot.pairingCode}
           </output>
-          <p>在播放器输入此六位 PIN 后才能发起有效请求；停止并重新联网会更换 PIN。</p>
+          <p>在收听设备输入此六位 PIN 后才能发起有效请求；重新打开应用或切换共享模式会更新 PIN。</p>
         </div>
       )}
       {error && <ErrorMessage message={error} />}
-      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法提供服务器。</p>}
+      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法提供共享设备。</p>}
       {snapshot && snapshot.requests.length > 0 && (
         <div className="lan-group">
           <h3 className="lan-group-heading">待确认请求</h3>
           <p className="lan-note">
-            连接 PIN 已由后台验证；核对播放器上的请求编号和名称后，再接受请求。
+            连接 PIN 已由后台验证；核对收听设备上的请求编号和名称后，再接受请求。
           </p>
           {snapshot.requests.map((request) => (
             <div className="lan-device" key={request.id}>
@@ -128,7 +161,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
           ))
         ) : (
           <p className="lan-empty">
-            {running ? "在播放器搜索并发起连接，请求会显示在这里。" : "尚无已连接设备。"}
+            {running ? "在收听设备搜索并发起连接，请求会显示在这里。" : "尚无已连接设备。"}
           </p>
         )}
       </div>
@@ -150,36 +183,42 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
   return (
     <section className="panel lan-panel client-lan-panel">
       <div className="panel-heading">
-        <h2>连接服务器</h2>
+        <h2>连接共享设备</h2>
         <StatusBadge label={linkStatusLabel(w)} />
       </div>
       <div className="lan-service-row">
         <p>
-          {snapshot?.running
-            ? "搜索与连接在切换设置页后仍保持。"
-            : "先在另一台 Windows 或 Android 上开启服务器，再搜索同一局域网内的设备。"}
+          {pending
+            ? "等待对方确认连接。"
+            : connected
+              ? "发现继续运行，打开设置不停止当前连接。"
+              : "自动寻找同一局域网里的共享设备。"}
         </p>
-        <Button
-          className={snapshot?.running ? "secondary-button" : "primary-button"}
-          disabled={disabled}
-          onClick={() => void (snapshot?.running ? w.stopLink() : w.link.start())}
-        >
-          {busy
-            ? "处理中…"
-            : snapshot?.running
-              ? pending
-                ? "取消连接"
-                : connected
-                  ? "停止连接"
-                  : "停止搜索"
-              : "搜索服务器"}
-        </Button>
+        {pending ? (
+          <Button
+            className="secondary-button"
+            disabled={disabled}
+            onClick={() => void w.retryDiscovery()}
+          >
+            取消请求
+          </Button>
+        ) : (
+          !snapshot?.running && (
+            <Button
+              className="secondary-button"
+              disabled={disabled}
+              onClick={() => void w.retryDiscovery()}
+            >
+              重试发现
+            </Button>
+          )
+        )}
       </div>
       {error && <ErrorMessage message={error} />}
-      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法搜索或连接服务器。</p>}
+      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法搜索或连接共享设备。</p>}
       {pending && (
         <div className="lan-confirmation" role="status">
-          <h3>{state === "awaitingApproval" ? "请在服务器确认连接" : "正在联系服务器…"}</h3>
+          <h3>{state === "awaitingApproval" ? "请在共享设备确认连接" : "正在联系共享设备…"}</h3>
           {snapshot?.verificationCode && (
             <output className="lan-code" aria-label="核对编号">
               {snapshot.verificationCode}
@@ -187,8 +226,8 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
           )}
           <p>
             {state === "awaitingApproval"
-              ? "核对两端的六位编号，然后在服务器上接受请求。"
-              : "收到服务器回应后，会显示核对编号。"}
+              ? "核对两端的六位编号，然后在共享设备上接受请求。"
+              : "收到共享设备回应后，会显示核对编号。"}
           </p>
         </div>
       )}
@@ -218,7 +257,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
         <>
           <div className="lan-pin-field">
             <label className="field-label" htmlFor="connection-pin">
-              服务器显示的连接 PIN
+              共享设备显示的连接 PIN
             </label>
             <Input
               id="connection-pin"
@@ -233,11 +272,11 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               }
             />
             <p className="field-help">
-              输入服务器连接区显示的六位 PIN，再选择服务器或填写地址。PIN 不保存到本机。
+              输入共享设备连接区显示的六位 PIN，再选择共享设备或填写地址。PIN 不保存到本机。
             </p>
           </div>
           <div className="lan-group">
-            <h3 className="lan-group-heading">发现的服务器</h3>
+            <h3 className="lan-group-heading">发现的共享设备</h3>
             {snapshot?.discovered.length ? (
               snapshot.discovered.map((host) => (
                 <div className="lan-device" key={host.id}>
@@ -262,7 +301,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
             ) : (
               <p className="lan-empty">
                 {snapshot?.running
-                  ? "正在搜索…也可以手动填写服务器地址。"
+                  ? "正在搜索…也可以手动填写共享设备地址。"
                   : "搜索结果会显示在这里。"}
               </p>
             )}

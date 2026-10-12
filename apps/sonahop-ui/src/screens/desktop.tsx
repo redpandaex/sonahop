@@ -12,7 +12,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
     <div className="desktop-app">
       <aside className="sidebar">
         <Brand />
-        <div className="sidebar-section-title">连接角色</div>
+        <div className="sidebar-section-title">声音</div>
         <RoleNavigation workbench={w} vertical />
         <div className="sidebar-bottom">
           <span className="version-label">SONAHOP / {w.info.version}</span>
@@ -27,7 +27,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
         <header className="desktop-header">
           <div className="breadcrumb">
             工作区 <span>/</span>{" "}
-            {w.page === "settings" ? "设置" : w.role === "host" ? "服务器" : "播放器"}
+            {w.page === "settings" ? "设置" : w.role === "host" ? "共享" : "收听"}
           </div>
           <StatusBadge label={linkStatusLabel(w)} />
         </header>

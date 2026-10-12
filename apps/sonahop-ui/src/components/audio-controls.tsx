@@ -1,3 +1,4 @@
+import { AppAudioChoice } from "./app-audio-choice";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -36,11 +37,11 @@ export function audioStatusLabel(w: Workbench, lane?: "listen" | "microphone"): 
     if (status.waiting)
       return lane === "listen"
         ? value.role === "host"
-          ? "等待播放器收听"
-          : "等待服务器开始共享"
+          ? "等待收听设备收听"
+          : "等待共享设备开始共享"
         : value.role === "host"
           ? "等待远端麦克风"
-          : "等待服务器批准";
+          : "等待共享设备批准";
     return "音频已停止";
   }
   if (value.listen.active && value.microphone.active) return "共享中 · 接收远端麦克风";
@@ -238,6 +239,11 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
     : w.prefs.sendSource;
   const microphone = source === "microphone";
   const unsupported = !microphone && !w.info.systemCaptureSupported;
+  const needsApp =
+    !microphone &&
+    w.info.platform === "android" &&
+    w.prefs.captureScope === "app" &&
+    !w.prefs.capturePackageName;
   const disabled = busy(w);
   return (
     <section className="panel source-panel">
@@ -255,7 +261,7 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         </span>
         <div>
           <h3>{microphone ? "本机麦克风" : "本机内部声音"}</h3>
-          <p>一台服务器，最多两个播放器。</p>
+          <p>一台共享设备，最多两个收听设备。</p>
         </div>
       </div>
       <label className="field-label" htmlFor="send-source">
@@ -292,6 +298,9 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         </SelectContent>
       </Select>
       {started && <p className="field-help">共享期间音源已锁定，停止共享后可以更换。</p>}
+      {!microphone && w.info.platform === "android" && (
+        <AppAudioChoice workbench={w} disabled={disabled || started} />
+      )}
       {microphone ? (
         <>
           <InputDevices workbench={w} disabled={disabled || started} />
@@ -313,7 +322,10 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         disabled={
           disabled ||
           (!started &&
-            (!w.link.snapshot?.running || unsupported || (microphone && !inputAvailable(w))))
+            (!w.link.snapshot?.running ||
+              unsupported ||
+              needsApp ||
+              (microphone && !inputAvailable(w))))
         }
         onClick={() =>
           void (started
@@ -322,6 +334,10 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
                 source,
                 inputDeviceId: w.prefs.inputDeviceId || undefined,
                 gain: w.prefs.volume,
+                packageName:
+                  w.info.platform === "android" && w.prefs.captureScope === "app"
+                    ? w.prefs.capturePackageName
+                    : undefined,
               }))
         }
       >
@@ -329,7 +345,7 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         <ArrowRightIcon size={18} weight="bold" />
       </Button>
       {!w.link.snapshot?.running && (
-        <p className="field-help">先在连接区开启服务器，再主动开始共享。</p>
+        <p className="field-help">正在准备发现服务，准备完成后可开始共享。</p>
       )}
       {w.audio.snapshot?.listen.lastError && (
         <ErrorMessage message={w.audio.snapshot.listen.lastError} />
@@ -358,7 +374,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         <StatusBadge label={audioStatusLabel(w, laneName)} />
       </div>
       {microphoneAllowed && (
-        <div className="player-direction-tabs" aria-label="播放器音频方向">
+        <div className="player-direction-tabs" aria-label="收听设备音频方向">
           <Button
             className={!microphone ? "direction-tab selected" : "direction-tab"}
             aria-pressed={!microphone}
@@ -391,11 +407,11 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           <h3>{microphone ? "本机麦克风" : "本设备扬声器 / 耳机"}</h3>
           <p>
             {microphone
-              ? "服务器批准后才开始采集。"
+              ? "共享设备批准后才开始采集。"
               : w.audio.snapshot?.remoteSource === "microphone"
-                ? "正在接收服务器的麦克风音源。"
+                ? "正在接收共享设备的麦克风音源。"
                 : w.audio.snapshot?.remoteSource === "system"
-                  ? "正在接收服务器的内部声音音源。"
+                  ? "正在接收共享设备的内部声音音源。"
                   : "连接并开始收听后显示远端音源。"}
           </p>
         </div>
@@ -433,7 +449,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         </>
       )}
       {!microphoneAllowed && (
-        <p className="field-help">当前服务器不接收远端麦克风，此设备可以收听它共享的音源。</p>
+        <p className="field-help">当前共享设备不接收远端麦克风，此设备可以收听它共享的音源。</p>
       )}
       <div className="mobile-primary">
         <Button
@@ -468,11 +484,11 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         <p>
           {lane?.waiting
             ? microphone
-              ? "请在服务器上批准申请；等待期间不采集麦克风。"
-              : "等待服务器主动开始共享。"
+              ? "请在共享设备上批准申请；等待期间不采集麦克风。"
+              : "等待共享设备主动开始共享。"
             : microphone
-              ? "这台播放器一次只运行一个音频方向，上传会停止本机收听。"
-              : "可收听 Windows 或 Android 服务器，播放音量由本设备系统控制。"}
+              ? "这台收听设备一次只运行一个音频方向，上传会停止本机收听。"
+              : "可收听 Windows 或 Android 共享设备，播放音量由本设备系统控制。"}
         </p>
       </div>
       {lane?.lastError && <ErrorMessage message={lane.lastError} />}
@@ -569,7 +585,8 @@ export function RemoteMicrophonePanel({ workbench: w }: { workbench: Workbench }
         <StatusBadge label={audioStatusLabel(w, "microphone")} />
       </div>
       <p className="field-help">
-        Windows 服务器可以接收一台播放器上传的麦克风，同时继续共享本机音源。此入口供会议等应用使用。
+        Windows
+        共享设备可以接收一台收听设备上传的麦克风，同时继续共享本机音源。此入口供会议等应用使用。
       </p>
       <VirtualOutputSelector workbench={w} />
       {requests.map((request) => (
@@ -609,7 +626,7 @@ export function RemoteMicrophonePanel({ workbench: w }: { workbench: Workbench }
           ? `${name ?? "已选择的设备"}正在提供麦克风。`
           : requests.length
             ? "选择虚拟入口后再批准申请。"
-            : "等待播放器主动申请上传麦克风。"}
+            : "等待收听设备主动申请上传麦克风。"}
       </p>
       <Button
         className="secondary-button"

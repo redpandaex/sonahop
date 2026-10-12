@@ -15,7 +15,6 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
         </a>
       </header>
       <main className="mobile-main" id="main-content">
-        <RoleNavigation workbench={w} />
         <PreviewNotice browser={w.info.browserPreview} />
         {w.appError && <ErrorMessage message={w.appError} />}
         {w.page === "settings" ? (
@@ -28,6 +27,9 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
         </div>
         {!w.saved && <ErrorMessage message="设置未能保存，下次打开可能恢复默认。" />}
       </main>
+      <div className="mobile-bottom-tabs">
+        <RoleNavigation workbench={w} />
+      </div>
     </div>
   );
 }

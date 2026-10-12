@@ -7,6 +7,9 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.media.projection.MediaProjectionConfig
 import android.os.Build
+import android.os.SystemClock
+import android.os.Process
+import org.json.JSONArray
 import androidx.activity.result.ActivityResult
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -32,6 +35,9 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
     // Accessed on the Activity UI thread only. Consent is never a reusable session credential.
     private var preparingAudio: Invoke? = null
     private var preparedProjection: Intent? = null
+    private var preparingUid = -1
+    private var preparedUid = -1
+    private var preparedAt = 0L
 
     override fun onDestroy() {
         cancelPreparation("Android activity was destroyed; start audio again explicitly")
@@ -66,6 +72,30 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun listCaptureApps(invoke: Invoke) {
+        try {
+            val pm=activity.packageManager
+            val intent=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val apps=pm.queryIntentActivities(intent,0).mapNotNull { item ->
+                val info=item.activityInfo.applicationInfo
+                if(info.uid==Process.myUid() || (pm.getPackagesForUid(info.uid)?.size ?: 0)>1) null
+                else Pair(info.packageName,pm.getApplicationLabel(info).toString())
+            }.distinctBy {it.first}.sortedBy {it.second.lowercase()}
+            val result=JSONArray()
+            for(app in apps) result.put(JSObject().put("packageName",app.first).put("label",app.second))
+            invoke.resolve(JSObject().put("apps",result))
+        } catch(error:RuntimeException) {invoke.reject("读取应用列表失败："+error.message)}
+    }
+    private fun targetUid(invoke: Invoke): Int {
+        val pkg=invoke.getArgs().optString("packageName","").trim()
+        if(pkg.isEmpty() || pkg=="null") return -1
+        val pm=activity.packageManager
+        val info=try {pm.getApplicationInfo(pkg,0)} catch(error:android.content.pm.PackageManager.NameNotFoundException) {throw IllegalArgumentException("音源应用已不可用，请刷新列表")}
+        require(info.uid!=Process.myUid()) {"请选择其它应用作为声音来源"}
+        require((pm.getPackagesForUid(info.uid)?.size ?: 0)==1) {"该应用共享音频身份，无法单独采集"}
+        return info.uid
+    }
+    @Command
     fun prepareAudio(invoke: Invoke) {
         activity.runOnUiThread {
             val mode = invoke.getArgs().optString("mode", "")
@@ -89,6 +119,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
             }
             preparingAudio = invoke
             try {
+                preparingUid=if(mode=="playback") targetUid(invoke) else -1
                 if (mode == "listen" || getPermissionState("microphone") == PermissionState.GRANTED)
                     completeAudioPermission(invoke, true)
                 else requestPermissionForAlias("microphone", invoke, "microphonePermissionResult")
@@ -139,7 +170,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
             }
             val manager = activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             // Only explicit prepareAudio(playback) reaches this system-owned consent dialog.
-            val intent = if (Build.VERSION.SDK_INT >= 34)
+            val intent = if (Build.VERSION.SDK_INT >= 34 && preparingUid < 0)
                 manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
             else manager.createScreenCaptureIntent()
             startActivityForResult(invoke, intent, "playbackCaptureResult")
@@ -160,7 +191,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
         val data = result.data
         val granted = result.resultCode == Activity.RESULT_OK && data != null &&
             getPermissionState("microphone") == PermissionState.GRANTED
-        if (granted) preparedProjection = data
+        if (granted) {preparedProjection=data;preparedUid=preparingUid;preparedAt=SystemClock.elapsedRealtime()}
         resolveAudioPermission(invoke, granted)
     }
 
@@ -175,8 +206,10 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
         activity.runOnUiThread {
             // Remove before any fallible operation: failed starts must also obtain fresh consent.
             val projectionData = preparedProjection
-            preparedProjection = null
-            if (preparingAudio != null || !foreground()) {
+            val uid=preparedUid
+            val fresh=preparedAt>0 && SystemClock.elapsedRealtime()-preparedAt<30000
+            preparedProjection = null;preparedUid=-1;preparedAt=0L
+            if (preparingAudio != null || !fresh || activity.isFinishing || activity.isDestroyed) {
                 invoke.reject("请保持 SonaHop 在前台，并完成内部播放采集授权后重新开始")
                 return@runOnUiThread
             }
@@ -188,7 +221,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.reject("Playback capture RECORD_AUDIO permission is not granted")
                 return@runOnUiThread
             }
-            AudioBridge.startSystemCapture(activity, projectionData) { error ->
+            AudioBridge.startSystemCapture(activity, projectionData, uid) { error ->
                 if (error != null) invoke.reject(error)
                 else invoke.resolve(JSObject().put("started", true))
             }
@@ -225,7 +258,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun cancelPreparation(reason: String) {
-        preparedProjection = null
+        preparedProjection = null;preparedUid=-1;preparedAt=0L;preparingUid=-1
         val pending = preparingAudio
         preparingAudio = null
         pending?.reject(reason)

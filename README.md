@@ -2,46 +2,52 @@
 
 以 Rust 为核心、Tauri 提供 Windows / Android 界面的跨设备音频项目。
 
-## 当前交付：0.3.0
+## 当前交付：0.4.0
 
-连接角色与操作系统分开：Windows 和 Android 都可选择服务器或播放器。服务器可分别选择内部播放声音或本机麦克风，最多让两台播放器同时收听；两种音源不混音。Windows 服务器还保留接收一台远端麦克风到已有虚拟音频线的功能。
+Windows 和 Android 都可共享本机声音，也可收听另一台设备。一个共享设备最多连接两台收听设备；内部播放声音与本机麦克风分别选择，不混音。Windows 共享端还可独立接收一台远端麦克风到用户已有的虚拟音频线。
 
-Windows release、Android ARM64 debug 和前端生产构建成功，APK签名/版本检查见本轮交付记录。没有启动应用、运行自动测试或真实音频/设备验证；新场景由用户复测。此前用户已确认0.2.0麦克风有信号，暂未再次断线。
+界面采用“共享 / 收听 / 设置”，Android 使用固定底部导航。打开应用后自动恢复上次角色并启动局域网发现，不自动配对、共享、收听或录音。切换角色先停止音频和连接，再启动新角色的发现；进入设置保留当前会话。常规联网开关已移除，启动失败时可重试。
 
 ## 最新安装包
 
-- `artifacts/multi-role/sonahop-windows.exe`
-- `artifacts/multi-role/sonahop-android-arm64-debug.apk`
+- artifacts/discovery-ui/sonahop-windows.exe
+- artifacts/discovery-ui/sonahop-android-arm64-debug.apk
 
-电脑和两台 Android 都更新到0.3.0，音频申请采用新请求编号，不能混用旧版音频控制。旧ui-preview/audio-mvp/ui-polish/link-diagnostics目录保留历史包，避免混用。Android包维持原debug签名，版本号升级为3000。
+电脑和两台 Android 一起更新到 0.4.0。Android 为 ARM64 debug 包，保留原 debug 签名，versionCode 4000；历史 artifacts/multi-role 中仍是 0.3.0。
 
-## Android作为服务器，电脑和平板一起听
+新 Windows exe 路径可能触发新的防火墙提示，请允许在本地网络通信；也可先关闭旧程序，再将新版替换到原先允许的 exe 路径。不要同时运行两个版本。
 
-1. 小米打开“服务器”，在连接区开启服务器，显示六位PIN。
-2. 电脑和Y700切到“播放器”，搜索小米，填小米显示的PIN并发起连接；在小米核对并接受两台播放器。
-3. 小米选择“内部播放声音”并开始共享，允许Android的录音和音频共享授权。电脑和Y700各点击开始收听。
-4. 小米切到音乐/视频应用播放。SonaHop使用前台音频服务继续采集允许共享的应用声音，不夺取该应用的音频焦点。部分应用禁止被采集，可能只收到静音。[Android采集规则](https://developer.android.com/media/platform/av-capture)
-5. 测试麦克风音源时先停止共享、选择本机麦克风再开始；播放器若已停止，需要手动再次开始收听。
+## 小米共享，电脑和平板一起听
 
-Windows播放器可选择本应用的扬声器/耳机出口；空值使用默认播放设备，不修改系统默认设备。手机/平板使用系统媒体音量键，播放增益固定为1。
+1. 小米打开“共享”，等待自动发现启动；连接区显示本机 IPv4 地址、端口 32993 和六位 PIN。
+2. 电脑和 Y700 打开“收听”，填小米的 PIN，选择发现的小米；在小米核对并接受两台设备。
+3. 小米选择“内部播放声音”。默认共享单个应用：选择音源应用，点击开始共享，允许录音与系统共享授权，并在系统窗口选择同一应用。也可选择全部允许采集的应用，这一范围仍需要整个屏幕的共享授权。
+4. 电脑和 Y700 各点击开始收听，小米切到所选音乐/视频应用播放。采集只转发音频，不创建屏幕录像；目标应用必须允许音频采集。[Android 采集规则](https://developer.android.com/media/platform/av-capture)
+5. 改为本机麦克风时先停止共享，再选择麦克风开始；收听端若已停止，需要重新点击收听。麦克风啸叫尚未处理，验证这一音源时优先使用耳机，避免扬声器声音重新进入麦克风。
 
-## Windows作为服务器
+单个应用按所选应用 UID 过滤，不会因目标应用卸载而静默转为全部采集。为避免同时采集共享 UID 下的其他应用，这类目标不提供选择。系统单应用选择入口取决于 Android 版本和厂商实现，实际弹窗由用户验证。[音频 UID 筛选](https://developer.android.com/reference/android/media/AudioPlaybackCaptureConfiguration.Builder)
 
-选择“内部播放声音”保留原来的Windows进程采集，排除SonaHop自身，与本地扬声器音量独立。选择“本机麦克风”使用已有录音设备；没有录音端点时选项禁用，连接麦克风后可刷新。
+## Windows 共享和远端麦克风
 
-手机提供Windows会议麦克风仍走独立路径：手机以播放器角色连接Windows服务器，选择上传本机麦克风、主动申请；Windows选择用户已安装的虚拟音频线播放端（如CABLE Input）并批准，会议/录音应用再选择对应录音端。物理Realtek/HDMI播放设备不能变成Windows录音设备。麦克风不会自动混入系统共享。
+Windows 的内部播放声音仍采用进程音频采集，排除 SonaHop 自身，与本地扬声器音量独立。共享本机麦克风需要已有录音端点；没有录音设备时禁用该音源，可连接设备后刷新。
 
-## 角色、权限和诊断
+手机提供 Windows 会议麦克风仍走独立路径：手机在“收听”页连接 Windows 共享端，切换到上传麦克风并主动申请；Windows 展开“提供给电脑应用的麦克风”，选择用户已安装的虚拟音频线播放端（如 CABLE Input）并批准，会议应用再选择对应录音端。Realtek/HDMI 扬声器不能变为录音设备。手机麦克风不会自动混入系统共享。
 
-界面统一为“服务器 / 播放器 / 设置”。保存连接角色，但应用重启不自动联网、共享或录音。切换角色先停止所有音频、断开连接、释放旧任务和捕获授权；切换设置页保留会话。共享时音源不可更换，停止后再选择。
+Windows 收听端可选择 SonaHop 的播放出口，空值使用默认设备，不修改系统默认音频设备。手机和平板使用系统媒体音量键；播放增益固定为 1，麦克风增益单独保留。
 
-Android内部播放采集需要Android10+与每次新的系统授权；只建立音频流，没有屏幕录像文件。授权撤销、通知停止、服务结束或错误均终止当前采集，不自动重启麦克风。
+## 发现、授权与诊断
 
-连接仍使用6位PIN/SPAKE2与AES-GCM，TCP读写独立；连续写阻塞2秒或20秒没有数据结束连接。媒体队列最多三帧，排队超过120ms在加密前丢弃。固定Opus48kHz/20ms：收听stereo96kbps、远端麦克风mono48kbps。播放时显示真实包数和信号强度；尚未测量端到端延迟。
+发现按运行中的本地 IPv4 接口绑定 socket，发送各子网广播并接收回复；Windows 同子网 TCP 连接也选择对应接口。接口变化会刷新发现任务；暂时的 UDP 重置继续接收，致命接收错误会显示失败与重试。以上只调整 SonaHop socket，不改 VPN、系统路由或防火墙。
 
-断线后两端打开“设置 → 连接诊断 → 读取最近日志 → 复制日志”。界面提供本次运行最近256条；本地文件约1MiB，保留一份备份，显示实际文件路径。不记录PIN、密钥或音频正文。读写统计和结束原因用于用户真机复测。
+若自动搜索不到，在共享端复制本机地址，在收听端填地址和 PIN 连接。多网卡设备可能列出多个地址，请优先使用与另一台设备处于同一 Wi-Fi 网段的地址。本轮 Windows/移动端失败是否由 TUN 导致尚未确认，需在原 VPN 设置下复测。
 
-Windows自启默认关闭，用户手动启用后只在登录时打开应用，仍需主动开启连接和音频。注册项使用当前exe位置，移动exe后需重新设置。
+Android 内部播放采集需要 Android 10+ 和每次新的系统授权。音频服务持有前台通知，不夺取被采集应用的音频焦点；授权撤销、通知停止、服务结束或错误均终止采集，不自动重启麦克风。
+
+连接使用六位 PIN/SPAKE2 与 AES-GCM，TCP 读写独立。连续写阻塞两秒或二十秒没有数据结束连接；媒体队列最多三帧，排队超过 120ms 在加密前丢弃。固定 Opus 48kHz/20ms：收听 stereo 96kbps、远端麦克风 mono 48kbps。包数和信号强度来自实际数据，端到端延迟尚未测量。
+
+出错后打开“设置 → 连接诊断 → 读取最近日志 → 复制日志”。本次运行保留最近 256 条，本地日志约 1MiB 加一份备份；日志包含发现接口、探测/回复计数和连接结束原因，不记录 PIN、密钥或音频正文。
+
+Windows 开机自启默认关闭；用户开启后登录时打开应用，并遵循自动发现设置，音频仍需手动启动。注册项使用当前 exe 路径，移动程序后需重新设置。
 
 ## 构建
 
@@ -52,19 +58,19 @@ pnpm install --frozen-lockfile
 $env:JAVA_HOME = 'D:\ProgramFiles\java\jdk-21.0.12.1+1'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
 $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
-./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/multi-role
+./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/discovery-ui
 ```
 
-脚本只编译打包，不启动应用或录音。Tauri先生成插件依赖并编译当前Rust，只有明确的Windows符号链接权限错误才使用同一次成功编译的.so交给Gradle。构建日志在artifacts/multi-role/build.log和android-build.log。
+脚本只编译打包，不启动应用或录音。Tauri 先生成插件依赖并编译当前 Rust，只有明确的 Windows 符号链接权限错误才使用同一次成功编译的 .so 交给 Gradle。交付记录在 artifacts/discovery-ui/build-info.json，构建日志在同目录 build.log 和 android-build.log。
 
-开发原生界面：`pnpm dev`；浏览器预览：`pnpm web:dev`，访问http://localhost:1420/?platform=windows或?platform=android。浏览器只显示布局，不能连接、采集或播放。
+开发原生界面：pnpm dev；浏览器布局预览：pnpm web:dev，地址 http://localhost:1420/?platform=windows 或 ?platform=android。浏览器预览不提供真实连接或音频。
 
-前端采用Biome、Tailwind4和shadcn/ui，源码在apps/sonahop-ui/src；`pnpm format`格式化。测试按用户约定手动执行。
+前端采用 Biome、Tailwind4 和 shadcn/ui，源码位于 apps/sonahop-ui/src。测试与应用/音频验证由用户执行，编译和签名检查不代表真机功能已验证。
 
-## 诊断CLI与后续
+## 诊断 CLI 与后续
 
-`cargo run -p sonahop -- devices --json`仅列Windows播放设备。原有`capture --output artifacts/playback-new.wav --seconds 5`仍是用户手动的系统端点采集诊断，须在采集期间主动播放声音；不会覆盖已有文件，WAV保持float32格式。
+cargo run -p sonahop -- devices --json 仅列 Windows 播放设备。原有 capture --output artifacts/playback-new.wav --seconds 5 是用户手动的系统端点采集诊断，须在采集期间播放声音；不会覆盖已有文件，WAV 保持 float32。
 
-设计文档：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md；实现计划：docs/superpowers/plans/2026-10-12-multi-role-audio.md。
+当前计划：docs/superpowers/plans/2026-10-12-discovery-ui.md。角色分离设计：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md。
 
-Windows自带虚拟播放/录音驱动、同机同时扮演服务器和播放器、手机音源混音、专用USB音频仍为后续范围；虚拟设备方案在docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。
+Windows 自带虚拟播放/录音驱动、同机同时作为共享和收听端、音源混音、专用 USB 音频和麦克风回授抑制仍为后续范围。虚拟设备方案：docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。

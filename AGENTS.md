@@ -25,7 +25,7 @@
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/specs/2026-10-12-multi-role-audio-design.md and docs/superpowers/plans/2026-10-12-multi-role-audio.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
+- Follow docs/superpowers/plans/2026-10-12-discovery-ui.md for the current discovery/UI stage; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
 - The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
 - Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
 - Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
@@ -48,3 +48,5 @@
 - Android hosting, phone-to-phone audio and Windows player are this stage's authorized scope. Role and platform are independent; role switching stops old audio/connections. Servers support two players. Each player uses one audio direction at a time; Windows host can additionally receive one remote microphone.
 - Android playback capture must not request audio focus or record the hardware microphone. Obtain fresh consent for every start, run the mediaProjection foreground service first, and release when revoked/stopped. JNI callbacks must match their session and mono/stereo packet size.
 - Windows microphone capture requires an available recording endpoint; no device means a disabled input choice and a clear explanation. Do not create virtual devices or install drivers.
+
+- The owner authorized automatic local-network discovery on app startup and after role changes, removal of normal network toggles, shared-device IPv4 display, Android single-app audio selection and shared/listen/settings bottom navigation. Pairing and audio still require user action. TUN is not a confirmed cause; do not alter system VPN, routes or firewall. Microphone squeal remains deferred.

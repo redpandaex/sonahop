@@ -113,17 +113,17 @@ export function SettingsScreen({
         <div className="setting-row">
           <div>
             <h3>设备系统音量</h3>
-            <p>使用本设备的系统媒体音量控制播放，各播放器互不影响。</p>
+            <p>使用本设备的系统媒体音量控制播放，各收听设备互不影响。</p>
           </div>
           <span className="quiet-tag">已选定</span>
         </div>
         <div className="setting-row">
           <div>
-            <h3>服务器与播放器</h3>
+            <h3>共享设备与收听设备</h3>
             <p>
               Windows 和 Android
-              均可选择连接角色；服务器选择内部声音或麦克风，播放器一次运行一个音频方向。Windows
-              服务器还可接收一台远端麦克风。
+              均可选择连接角色；共享设备选择内部声音或麦克风，收听设备一次运行一个音频方向。Windows
+              共享设备还可接收一台远端麦克风。
             </p>
           </div>
           <span className="quiet-tag">默认</span>
@@ -158,8 +158,8 @@ export function SettingsScreen({
         </div>
         <p className="about-note">
           {w.info.browserPreview
-            ? "浏览器仅提供布局与偏好预览；服务器、播放器和音频需使用原生应用。"
-            : "支持 Windows / Android 服务器和播放器、局域网 PIN 配对及系统/麦克风音源。向 Windows 上传麦克风仍需服务器批准及已安装的虚拟音频线。"}
+            ? "浏览器仅提供布局与偏好预览；共享设备、收听设备和音频需使用原生应用。"
+            : "支持 Windows / Android 共享设备和收听设备、局域网 PIN 配对及系统/麦克风音源。向 Windows 上传麦克风仍需共享设备批准及已安装的虚拟音频线。"}
           切换设置页不停止正在运行的音频。
         </p>
       </section>

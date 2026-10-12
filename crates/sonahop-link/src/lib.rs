@@ -1,6 +1,8 @@
 //! PIN-authenticated, encrypted SonaHop v2 LAN control and media transport.
 mod crypto;
 mod diagnostics;
+mod discovery;
+mod interfaces;
 mod network;
 mod protocol;
 
@@ -60,6 +62,7 @@ pub struct LinkSnapshot {
     pub role: LinkRole,
     pub running: bool,
     pub local_name: String,
+    pub local_addresses: Vec<String>,
     pub port: u16,
     pub discovered: Vec<DiscoveredHost>,
     pub requests: Vec<LinkRequest>,
@@ -294,6 +297,7 @@ impl LinkService {
                         role,
                         running: false,
                         local_name: String::new(),
+                        local_addresses: Vec::new(),
                         port: CONTROL_PORT,
                         discovered: Vec::new(),
                         requests: Vec::new(),

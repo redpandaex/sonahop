@@ -6,6 +6,7 @@ Allow explicit local-network and audio preparation requests, including one-time 
 
 - `allow-ensure-permission`
 - `allow-prepare-audio`
+- `allow-list-capture-apps`
 
 ## Permission Table
 
@@ -38,6 +39,32 @@ Enables the ensure_permission command without any pre-configured scope.
 <td>
 
 Denies the ensure_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sonahop-lan:allow-list-capture-apps`
+
+</td>
+<td>
+
+Enables the list_capture_apps command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sonahop-lan:deny-list-capture-apps`
+
+</td>
+<td>
+
+Denies the list_capture_apps command without any pre-configured scope.
 
 </td>
 </tr>

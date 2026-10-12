@@ -1,8 +1,8 @@
-use crate::protocol::{self, Discovery, Frame, FrameReader, MAX_UDP, Payload, VERSION};
+use crate::protocol::{self, Frame, FrameReader, Payload, VERSION};
 use crate::{
-    CONTROL_PORT, ClientState, Command, DISCOVERY_PORT, DiscoveredHost, Inner, LinkEvent, LinkPeer,
-    LinkRequest, LinkRole, MAX_MEDIA_BYTES, Outbound, channels, current, fail_service,
-    finish_connection, publish_connected, publish_payload, spawn,
+    CONTROL_PORT, ClientState, Command, DISCOVERY_PORT, Inner, LinkEvent, LinkPeer, LinkRequest,
+    LinkRole, MAX_MEDIA_BYTES, Outbound, channels, current, fail_service, finish_connection,
+    publish_connected, publish_payload, spawn,
 };
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -14,7 +14,6 @@ use tokio::time::{Duration, MissedTickBehavior, interval, sleep_until, timeout};
 
 const MAX_PENDING: usize = 4;
 const MAX_PEERS: usize = 2;
-const DISCOVERY_TTL: Duration = Duration::from_secs(10);
 const APPROVAL_TTL: Duration = Duration::from_secs(60);
 
 pub(crate) struct Sockets {
@@ -58,7 +57,7 @@ pub(crate) fn launch(
         let task_inner = inner.clone();
         let task_cancel = cancel.clone();
         spawn(inner, generation, async move {
-            host_discovery(task_inner, generation, udp, task_cancel).await;
+            crate::discovery::host(task_inner, generation, udp, task_cancel).await;
         });
         let task_inner = inner.clone();
         spawn(inner, generation, async move {
@@ -67,7 +66,7 @@ pub(crate) fn launch(
     } else {
         let task_inner = inner.clone();
         spawn(inner, generation, async move {
-            client_discovery(task_inner, generation, udp, cancel).await;
+            crate::discovery::client(task_inner, generation, udp, cancel).await;
         });
     }
 }
@@ -83,165 +82,11 @@ async fn cancelled(mut receiver: watch::Receiver<bool>) {
     }
 }
 
-fn transient_datagram_error(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::ConnectionRefused
-            | std::io::ErrorKind::Interrupted
-            | std::io::ErrorKind::WouldBlock
-    )
-}
-
 fn source_ip(address: SocketAddr) -> Option<Ipv4Addr> {
     match address {
         SocketAddr::V4(address) if protocol::local_ip(*address.ip()) => Some(*address.ip()),
         _ => None,
     }
-}
-
-async fn host_discovery(
-    inner: Arc<Inner>,
-    generation: u64,
-    udp: UdpSocket,
-    cancel: watch::Receiver<bool>,
-) {
-    let host_id = uuid::Uuid::new_v4().to_string();
-    // Fixed receive storage also handles Windows oversized datagrams without a socket error.
-    let mut buffer = [0; 65536];
-    let mut rate_window = Instant::now();
-    let mut replies = 0;
-    loop {
-        let received = tokio::select! {
-            _ = cancelled(cancel.clone()) => return,
-            received = udp.recv_from(&mut buffer) => received,
-        };
-        let (length, source) = match received {
-            Ok(value) => value,
-            Err(error) if transient_datagram_error(&error) => continue,
-            Err(error) => {
-                fail_service(&inner, generation, format!("局域网发现接收失败：{error}"));
-                return;
-            }
-        };
-        if length > MAX_UDP || source_ip(source).is_none() {
-            continue;
-        }
-        let Ok(Discovery::Probe {
-            version: VERSION,
-            nonce,
-        }) = serde_json::from_slice(&buffer[..length])
-        else {
-            continue;
-        };
-        if !protocol::valid_id(&nonce) {
-            continue;
-        }
-        if rate_window.elapsed() >= Duration::from_secs(1) {
-            rate_window = Instant::now();
-            replies = 0;
-        }
-        if replies >= 32 {
-            continue;
-        }
-        replies += 1;
-        let name = {
-            let state = inner.lock();
-            if !current(&state, generation) {
-                return;
-            }
-            state.snapshot.local_name.clone()
-        };
-        let reply = Discovery::Reply {
-            version: VERSION,
-            nonce,
-            id: host_id.clone(),
-            name,
-            port: CONTROL_PORT,
-        };
-        if let Ok(payload) = serde_json::to_vec(&reply) {
-            // A single unreachable probe sender must not take down the host service.
-            tokio::select! {
-                _ = cancelled(cancel.clone()) => return,
-                _ = udp.send_to(&payload, source) => {},
-            }
-        }
-    }
-}
-
-async fn client_discovery(
-    inner: Arc<Inner>,
-    generation: u64,
-    udp: UdpSocket,
-    cancel: watch::Receiver<bool>,
-) {
-    let nonce = uuid::Uuid::new_v4().to_string();
-    let Ok(probe) = serde_json::to_vec(&Discovery::Probe {
-        version: VERSION,
-        nonce: nonce.clone(),
-    }) else {
-        return;
-    };
-    let target = SocketAddrV4::new(Ipv4Addr::BROADCAST, DISCOVERY_PORT);
-    let mut probes = interval(Duration::from_secs(3));
-    let mut cleanup = interval(Duration::from_secs(1));
-    probes.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    cleanup.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    // Fixed receive storage also handles Windows oversized datagrams without a socket error.
-    let mut buffer = [0; 65536];
-    loop {
-        tokio::select! {
-            _ = cancelled(cancel.clone()) => return,
-            _ = probes.tick() => {
-                if let Err(error) = udp.send_to(&probe, target).await {
-                    fail_service(&inner, generation, format!("局域网广播失败，请检查网络或本地网络权限：{error}"));
-                    return;
-                }
-            }
-            _ = cleanup.tick() => {
-                let mut state = inner.lock();
-                if !current(&state, generation) { return; }
-                state.discovered.retain(|_, (_, seen)| seen.elapsed() < DISCOVERY_TTL);
-                update_discovered(&mut state);
-            }
-            received = udp.recv_from(&mut buffer) => {
-                let (length, source) = match received {
-                    Ok(value) => value,
-                    Err(error) if transient_datagram_error(&error) => continue,
-                    Err(error) => {
-                        fail_service(&inner, generation, format!("局域网搜索接收失败：{error}"));
-                        return;
-                    }
-                };
-                let Some(address) = source_ip(source) else { continue; };
-                if length > MAX_UDP { continue; }
-                let Ok(Discovery::Reply { version: VERSION, nonce: response_nonce, id, name, port }) =
-                    serde_json::from_slice(&buffer[..length]) else { continue; };
-                if response_nonce != nonce || !protocol::valid_id(&id) || !protocol::valid_name(&name) || port == 0 {
-                    continue;
-                }
-                let mut state = inner.lock();
-                if !current(&state, generation) { return; }
-                state.discovered.retain(|_, (_, seen)| seen.elapsed() < DISCOVERY_TTL);
-                if state.discovered.len() < 16 || state.discovered.contains_key(&id) {
-                    state.discovered.insert(id.clone(), (DiscoveredHost {
-                        id, name, address: address.to_string(), port,
-                    }, Instant::now()));
-                    update_discovered(&mut state);
-                }
-            }
-        }
-    }
-}
-
-fn update_discovered(state: &mut crate::State) {
-    let mut hosts: Vec<_> = state
-        .discovered
-        .values()
-        .map(|(host, _)| host.clone())
-        .collect();
-    hosts.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
-    state.snapshot.discovered = hosts;
 }
 
 async fn accept_connections(
@@ -565,7 +410,7 @@ async fn client_session(
     pin: String,
     mut outbound: Outbound,
 ) -> Result<(), String> {
-    let stream = timeout(Duration::from_secs(5), TcpStream::connect(address))
+    let stream = timeout(Duration::from_secs(5), crate::interfaces::connect(address))
         .await
         .map_err(|_| "连接服务器 超时，请检查地址与防火墙")?
         .map_err(|error| format!("无法连接服务器：{error}"))?;

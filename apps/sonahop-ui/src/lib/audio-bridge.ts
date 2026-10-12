@@ -36,6 +36,7 @@ export interface ListenOptions {
   inputDeviceId?: string;
   outputDeviceId?: string;
   gain?: number;
+  packageName?: string;
 }
 export const startListening = ({ source, inputDeviceId, outputDeviceId }: ListenOptions = {}) =>
   invoke<AudioSnapshot>("start_listening", { source, inputDeviceId, outputDeviceId });
@@ -61,11 +62,12 @@ export const setAudioGain = (gain: number) => invoke<AudioSnapshot>("set_audio_g
 export async function prepareAudio(
   platform: Platform,
   mode: AudioMode | "playback",
+  packageName?: string,
 ): Promise<void> {
   if (platform !== "android") return;
   const result = await invoke<{ granted: boolean; deviceName: string }>(
     "plugin:sonahop-lan|prepare_audio",
-    { mode },
+    { mode, packageName },
   );
   if (!result.granted) {
     throw new Error(

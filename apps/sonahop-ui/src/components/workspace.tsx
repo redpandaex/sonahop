@@ -22,15 +22,15 @@ export function RoleNavigation({
   vertical?: boolean;
 }) {
   const roles: Array<{ role: ConnectionRole; label: string; icon: typeof MonitorIcon }> = [
-    { role: "host", label: "服务器", icon: MonitorIcon },
-    { role: "client", label: "播放器", icon: SpeakerHighIcon },
+    { role: "host", label: "共享", icon: MonitorIcon },
+    { role: "client", label: "收听", icon: SpeakerHighIcon },
   ];
   const disabled =
     w.roleBusy || w.audio.busy || w.link.busy || (w.link.native && !w.link.available);
   return (
     <nav
       className={vertical ? "role-navigation role-navigation-vertical" : "role-navigation"}
-      aria-label="连接角色与设置"
+      aria-label="共享、收听与设置"
     >
       {roles.map(({ role, label, icon: Icon }) => (
         <Button
@@ -69,10 +69,10 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
   return (
     <section className="panel computer-panel saved-server-panel">
       <div className="panel-heading">
-        <h2>保存的服务器</h2>
+        <h2>保存的共享设备</h2>
         <Button
           className="icon-button"
-          aria-label="编辑保存的服务器"
+          aria-label="编辑保存的共享设备"
           onClick={() => {
             setName(w.prefs.computerName);
             setAddress(w.prefs.computerAddress);
@@ -89,7 +89,7 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
           onSubmit={(event) => {
             event.preventDefault();
             w.update({
-              computerName: name.trim() || "我的服务器",
+              computerName: name.trim() || "我的共享设备",
               computerAddress: address.trim(),
             });
             setEditing(false);
@@ -97,17 +97,17 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
           }}
         >
           <label className="field-label" htmlFor="saved-server-name">
-            服务器名称
+            共享设备名称
           </label>
           <Input
             id="saved-server-name"
             maxLength={64}
             value={name}
             onChange={(event) => setName(event.currentTarget.value)}
-            placeholder="我的服务器"
+            placeholder="我的共享设备"
           />
           <label className="field-label" htmlFor="saved-server-address">
-            服务器地址
+            共享设备地址
           </label>
           <Input
             id="saved-server-address"
@@ -131,9 +131,9 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
         </form>
       ) : (
         <div className="saved-server-identity">
-          <h3>{w.prefs.computerAddress ? w.prefs.computerName : "还没有保存服务器"}</h3>
+          <h3>{w.prefs.computerAddress ? w.prefs.computerName : "还没有保存共享设备"}</h3>
           <p className={w.prefs.computerAddress ? "mono" : ""}>
-            {w.prefs.computerAddress || "搜索发现或手动连接 Windows / Android 服务器。"}
+            {w.prefs.computerAddress || "搜索发现或手动连接 Windows / Android 共享设备。"}
           </p>
         </div>
       )}
@@ -153,13 +153,9 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
     <div className="workspace-content shared-workspace">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{host ? "AUDIO SERVER" : "AUDIO PLAYER"}</p>
-          <h1>{host ? "共享这台设备的声音" : "收听服务器的声音"}</h1>
-          <p>
-            {host
-              ? "选择本机音源，让 Windows 或 Android 播放器收听。"
-              : "连接 Windows 或 Android 服务器，在这台设备播放音频。"}
-          </p>
+          <p className="eyebrow">{host ? "SHARE AUDIO" : "LISTEN HERE"}</p>
+          <h1>{host ? "共享声音" : "收听声音"}</h1>
+          <p>{host ? "选择声音来源，让其它设备收听。" : "发现共享设备，在这里播放它的声音。"}</p>
         </div>
         <span className="mode-symbol">
           {host ? (
@@ -169,9 +165,7 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
           )}
         </span>
       </div>
-      <p className="role-change-note">
-        切换服务器 / 播放器会停止音频并断开所有连接。切换设置页会保持当前会话。
-      </p>
+      <p className="role-change-note">切换共享 / 收听会结束当前音频和连接；打开设置不停止会话。</p>
       {w.roleBusy && (
         <p className="role-state-note" role="status">
           正在停止旧会话并切换连接角色…
@@ -201,13 +195,26 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
             <ServerAudioPanel workbench={w} />
             <HostLinkPanel workbench={w} />
           </div>
-          <RemoteMicrophonePanel workbench={w} />
+          {w.info.platform === "windows" && (
+            <details
+              className="advanced-audio"
+              open={Boolean(
+                w.audio.snapshot?.pendingMicRequests.length || w.audio.snapshot?.microphone.active,
+              )}
+            >
+              <summary>提供给电脑应用的麦克风</summary>
+              <RemoteMicrophonePanel workbench={w} />
+            </details>
+          )}
         </>
       ) : (
         <div className="workspace-panels">
           <div className="workspace-connection-column">
             <ClientLinkPanel workbench={w} />
-            <SavedServer workbench={w} />
+            <details className="saved-server-details">
+              <summary>保存或编辑设备地址</summary>
+              <SavedServer workbench={w} />
+            </details>
           </div>
           <PlayerAudioPanel workbench={w} />
         </div>

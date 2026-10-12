@@ -33,7 +33,7 @@ export function PreviewNotice({ browser }: { browser: boolean }) {
     return (
       <p className="setup-note" role="note">
         <InfoIcon size={15} aria-hidden />
-        在服务器开启连接，在播放器配对后主动开始音频。
+        发现自动开启，连接确认后再开始共享或收听。
       </p>
     );
   return (
@@ -188,7 +188,7 @@ export function VolumeControl({
           : microphone
             ? workbench.role === "host"
               ? "调整本设备麦克风增益；点击开始共享后启动。"
-              : "调整本设备麦克风增益；申请获得服务器批准后启动。"
+              : "调整本设备麦克风增益；申请获得共享设备批准后启动。"
             : "调整这台设备的接收音量，不改变电脑扬声器或另一台设备的音量。"}
         {workbench.audio.snapshot && !workbench.info.browserPreview && (
           <> 当前生效：{workbench.audio.snapshot.gain}%。</>

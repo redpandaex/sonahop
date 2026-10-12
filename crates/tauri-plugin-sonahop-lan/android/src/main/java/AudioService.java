@@ -142,6 +142,7 @@ public final class AudioService extends Service {
         final boolean microphone;
         final boolean systemCapture;
         final int captureChannels;
+        final int targetUid;
         final Object ioLock = new Object();
         final AtomicBoolean disposing = new AtomicBoolean();
         final ArrayList<AudioBridge.StartResult> stopCallbacks = new ArrayList<>();
@@ -163,13 +164,14 @@ public final class AudioService extends Service {
         PowerManager.WakeLock wakeLock;
 
         Session(long id, Context context, boolean microphone, boolean systemCapture,
-                Intent projectionData, AudioBridge.StartResult callback) {
+                Intent projectionData, int targetUid, AudioBridge.StartResult callback) {
             this.id = id;
             this.context = context;
             this.microphone = microphone;
             this.systemCapture = systemCapture;
             this.captureChannels = systemCapture ? 2 : microphone ? 1 : 0;
             this.projectionData = projectionData;
+            this.targetUid=targetUid;
             this.callback = callback;
         }
 
@@ -255,12 +257,13 @@ public final class AudioService extends Service {
                 }
             };
             projection.registerCallback(projectionCallback, MAIN);
-            AudioPlaybackCaptureConfiguration capture = new AudioPlaybackCaptureConfiguration.Builder(projection)
+            AudioPlaybackCaptureConfiguration.Builder captureBuilder = new AudioPlaybackCaptureConfiguration.Builder(projection)
                     .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                     .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                    .excludeUid(Process.myUid())
-                    .build();
+                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN);
+            if(targetUid>=0) captureBuilder.addMatchingUid(targetUid);
+            else captureBuilder.excludeUid(Process.myUid());
+            AudioPlaybackCaptureConfiguration capture=captureBuilder.build();
             int minimum = AudioRecord.getMinBufferSize(48000, AudioFormat.CHANNEL_IN_STEREO,
                     AudioFormat.ENCODING_PCM_16BIT);
             if (minimum <= 0) throw new IllegalStateException("48 kHz stereo playback capture is unavailable: " + minimum);

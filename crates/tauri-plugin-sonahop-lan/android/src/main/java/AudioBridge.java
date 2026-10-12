@@ -38,19 +38,19 @@ public final class AudioBridge {
     public static synchronized boolean hasActiveSession() { return current != null; }
 
     public static void start(Activity activity, boolean microphone, StartResult callback) {
-        start(activity, microphone, false, null, callback);
+        start(activity, microphone, false, null, -1, callback);
     }
 
-    public static void startSystemCapture(Activity activity, Intent projectionData, StartResult callback) {
+    public static void startSystemCapture(Activity activity, Intent projectionData, int targetUid, StartResult callback) {
         if (Build.VERSION.SDK_INT < 29 || projectionData == null) {
             MAIN.post(() -> callback.complete("A fresh Android 10+ playback capture grant is required"));
             return;
         }
-        start(activity, false, true, projectionData, callback);
+        start(activity, false, true, projectionData, targetUid, callback);
     }
 
     private static void start(Activity activity, boolean microphone, boolean systemCapture,
-            Intent projectionData, StartResult callback) {
+            Intent projectionData, int targetUid, StartResult callback) {
         final AudioService.Session session;
         synchronized (AudioBridge.class) {
             if (current != null) {
@@ -64,7 +64,7 @@ public final class AudioBridge {
                 MAIN.post(() -> callback.complete("Audio JNI registration failed: " + error.getMessage()));
                 return;
             }
-            session = new AudioService.Session(++nextId, activity.getApplicationContext(), microphone, systemCapture, projectionData, callback);
+            session = new AudioService.Session(++nextId, activity.getApplicationContext(), microphone, systemCapture, projectionData, targetUid, callback);
             current = session;
         }
         Intent intent = new Intent(activity, AudioService.class)

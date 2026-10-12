@@ -1,3 +1,3 @@
 [default]
 description = "Allow explicit local-network and audio preparation requests, including one-time playback capture consent."
-permissions = ["allow-ensure-permission", "allow-prepare-audio"]
+permissions = ["allow-ensure-permission", "allow-prepare-audio","allow-list-capture-apps"]

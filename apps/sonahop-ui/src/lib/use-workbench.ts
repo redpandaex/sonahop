@@ -25,7 +25,7 @@ export function useWorkbench() {
   const [prefs, setPrefs] = useState(initialPreferences);
   const [info, setInfo] = useState<AppInfo>({
     platform: platformHint(),
-    version: "0.3.0",
+    version: "0.4.0",
     uiPreview: true,
     browserPreview: !nativeLinkAvailable(),
     systemCaptureSupported: false,
@@ -90,6 +90,8 @@ export function useWorkbench() {
           throw new Error("连接角色切换失败，请查看连接错误并重试。");
         if (!(await audio.refresh()))
           throw new Error("角色已切换，但音频状态读取失败。请重试角色切换。");
+        update({ connectionRole: next });
+        if (!(await link.start())) throw new Error("自动发现启动失败，请检查本地网络授权并重试。");
         if (mounted.current) {
           update({ connectionRole: next });
           setMicOutputDeviceId("");
@@ -105,7 +107,7 @@ export function useWorkbench() {
         if (mounted.current) setRoleBusy(false);
       }
     },
-    [link.available, link.changeRole, audio.available, audio.refresh, update],
+    [link.available, link.changeRole, link.start, audio.available, audio.refresh, update],
   );
   useEffect(() => {
     if (!appReady || !link.snapshot || initialized.current || !link.native) return;
@@ -127,6 +129,12 @@ export function useWorkbench() {
     if (audio.available) await audio.stop();
     return link.stop();
   }, [audio.available, audio.stop, link.stop]);
+  const retryDiscovery = useCallback(async () => {
+    if (roleGate.current) return false;
+    if (audio.available && !(await audio.stop())) return false;
+    if (!(await link.stop())) return false;
+    return link.start();
+  }, [audio.available, audio.stop, link.stop, link.start]);
   const disconnectPeer = useCallback(
     async (peerId: string) => {
       if (audio.available && role === "client") await audio.stop();
@@ -226,6 +234,7 @@ export function useWorkbench() {
     switchRole,
     switchMode,
     stopLink,
+    retryDiscovery,
     disconnectPeer,
     micOutputDeviceId,
     setMicOutputDeviceId,

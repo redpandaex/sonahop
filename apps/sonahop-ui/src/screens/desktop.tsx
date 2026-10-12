@@ -24,7 +24,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
     <div className="desktop-app">
       <aside className="sidebar">
         <Brand />
-        <div className="sidebar-section-title">工作模式</div>
+        <div className="sidebar-section-title">音频功能</div>
         <ModeSwitch
           vertical
           mode={w.prefs.mode}
@@ -123,8 +123,8 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
                 <div className="source-footnote">
                   <span className="mini-dot" />
                   {microphone
-                    ? "只接受一台设备作为麦克风，同时暂停所有收听。"
-                    : "最多两台设备收听，接收音量分别控制。"}
+                    ? "只接受一台设备作为麦克风，其它设备可以继续收听。"
+                    : "最多两台设备连接，播放音量使用各自设备的音量键。"}
                 </div>
               </section>
               <HostLinkPanel workbench={w} />
@@ -146,7 +146,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
                 disabled={w.audio.busy}
                 onClick={() => void w.audio.stop()}
               >
-                停止音频
+                停止全部音频
               </Button>
             )}
         </footer>

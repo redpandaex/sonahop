@@ -1,62 +1,61 @@
 use super::workers::WorkerMode;
-use super::{AudioControl, AudioService, MicRequest};
+use super::{AudioControl, AudioLane, AudioService, MicRequest, Phase};
 use sonahop_audio::{MediaPacket, StreamKind, parse_stream_id, stream_id_text};
 use sonahop_link::{LinkEvent, LinkRole};
-
 impl AudioService {
     pub(super) async fn handle_event(&self, event: LinkEvent) {
         match event {
             LinkEvent::Connected { .. } => {}
             LinkEvent::Media { peer_id, payload } => {
                 let Ok(packet) = MediaPacket::parse(&payload) else {
-                    self.shared.lock().snapshot.dropped_packets += 1;
                     return;
                 };
+                let kind = packet.kind;
                 let mut state = self.shared.lock();
-                let expected = if state.snapshot.role == LinkRole::Host {
-                    state.snapshot.mode == "microphone"
-                        && state.snapshot.mic_peer_id.as_deref() == Some(peer_id.as_str())
-                        && packet.kind == StreamKind::Microphone
+                let expected = if state.role == LinkRole::Host {
+                    kind == StreamKind::Microphone
+                        && state.microphone.peer_id.as_deref() == Some(peer_id.as_str())
                 } else {
-                    state.snapshot.mode == "listen"
-                        && state.listeners.contains(&peer_id)
-                        && packet.kind == StreamKind::Listen
+                    kind == StreamKind::Listen && state.listeners.contains(&peer_id)
                 };
-                if !state.snapshot.active || !expected || state.stream_id != Some(packet.stream_id)
+                let lane = state.lane_mut(kind);
+                if !expected
+                    || lane.phase != Phase::Active
+                    || lane.stream_id != Some(packet.stream_id)
                 {
-                    state.snapshot.dropped_packets += 1;
+                    lane.dropped_packets += 1;
                     return;
                 }
-                if let Some(worker) = &state.worker {
+                if let Some(worker) = &lane.worker {
                     if worker.media.try_send(packet).is_ok() {
-                        state.snapshot.received_packets += 1;
+                        lane.received_packets += 1;
                     } else {
-                        state.snapshot.dropped_packets += 1;
+                        lane.dropped_packets += 1;
                     }
                 }
             }
             LinkEvent::Disconnected { peer_id } => {
                 let _lock = self.lifecycle.lock().await;
-                let must_stop = {
+                let (stop_listen, stop_mic) = {
                     let mut state = self.shared.lock();
-                    state
-                        .snapshot
-                        .pending_mic_requests
-                        .retain(|r| r.peer_id != peer_id);
+                    state.requests.retain(|r| r.peer_id != peer_id);
                     let was_listener = state.listeners.remove(&peer_id);
-                    let was_microphone =
-                        state.snapshot.mic_peer_id.as_deref() == Some(peer_id.as_str());
-                    was_microphone
-                        || (state.snapshot.role == LinkRole::Client && was_listener)
-                        || (was_listener
-                            && state.snapshot.mode == "listen"
-                            && state.snapshot.active
-                            && state.listeners.is_empty())
+                    let listen = was_listener
+                        && (state.role == LinkRole::Client || state.listeners.is_empty());
+                    (
+                        listen,
+                        state.microphone.peer_id.as_deref() == Some(peer_id.as_str()),
+                    )
                 };
-                if must_stop {
-                    self.stop_inner("设备连接已断开", true).await;
-                    self.shared.lock().snapshot.last_error =
-                        Some("设备连接已断开，请重新连接并手动开始".into());
+                for (kind, stop) in [
+                    (StreamKind::Listen, stop_listen),
+                    (StreamKind::Microphone, stop_mic),
+                ] {
+                    if stop {
+                        self.stop_lane_inner(kind, "设备连接已断开", false).await;
+                        self.shared.lock().lane_mut(kind).error =
+                            Some("设备连接已断开，请重新连接并手动开始".into());
+                    }
                 }
             }
             LinkEvent::Control { peer_id, payload } => {
@@ -74,7 +73,7 @@ impl AudioService {
                 {
                     return;
                 }
-                if self.snapshot().role == LinkRole::Host {
+                if self.shared.lock().role == LinkRole::Host {
                     self.host_control(peer_id, control).await;
                 } else {
                     self.client_control(peer_id, control).await;
@@ -87,42 +86,37 @@ impl AudioService {
             AudioControl::Subscribe => {
                 let offer = {
                     let mut state = self.shared.lock();
-                    if state.snapshot.mode == "microphone" {
+                    if state.microphone.peer_id.as_deref() == Some(peer.as_str()) {
                         drop(state);
                         let _ = self.shared.send(
                             &peer,
-                            AudioControl::Error {
-                                message: "电脑正在使用手机麦克风，请停止后再收听".into(),
-                            },
+                            AudioControl::error(
+                                StreamKind::Listen,
+                                "同一台 Android 暂不能同时录音与收听",
+                            ),
                         );
                         return;
                     }
                     state.listeners.insert(peer.clone());
-                    if state.snapshot.mode == "listen" && state.snapshot.active {
-                        state.stream_id
+                    if state.listen.phase == Phase::Active {
+                        state.listen.stream_id
                     } else {
                         None
                     }
                 };
                 if let Some(id) = offer {
-                    let _ = self.shared.send(
-                        &peer,
-                        AudioControl::ListenOffer {
-                            stream_id: stream_id_text(id),
-                        },
-                    );
-                }
-            }
-            AudioControl::Unsubscribe => {
-                let stop = {
-                    let mut state = self.shared.lock();
-                    state.listeners.remove(&peer);
-                    state.snapshot.mode == "listen"
-                        && state.snapshot.active
-                        && state.listeners.is_empty()
-                };
-                if stop {
-                    self.stop_inner("最后一台收听设备已停止", false).await;
+                    if self
+                        .shared
+                        .send(
+                            &peer,
+                            AudioControl::ListenOffer {
+                                stream_id: stream_id_text(id),
+                            },
+                        )
+                        .is_err()
+                    {
+                        self.shared.lock().listeners.remove(&peer);
+                    }
                 }
             }
             AudioControl::MicRequest => {
@@ -135,43 +129,57 @@ impl AudioService {
                     .find(|p| p.id == peer)
                     .map(|p| p.name.clone())
                     .unwrap_or_default();
-                let mut state = self.shared.lock();
-                state.listeners.remove(&peer);
-                if state.snapshot.mic_peer_id.as_deref() == Some(peer.as_str()) {
-                    return;
-                }
-                if !state
-                    .snapshot
-                    .pending_mic_requests
-                    .iter()
-                    .any(|r| r.peer_id == peer)
-                    && state.snapshot.pending_mic_requests.len() < 2
-                {
-                    state.snapshot.pending_mic_requests.push(MicRequest {
-                        peer_id: peer,
-                        name,
-                    });
+                let stop_listen = {
+                    let mut state = self.shared.lock();
+                    let removed = state.listeners.remove(&peer);
+                    if state.microphone.peer_id.as_deref() != Some(peer.as_str())
+                        && !state.requests.iter().any(|r| r.peer_id == peer)
+                        && state.requests.len() < 2
+                    {
+                        state.requests.push(MicRequest {
+                            peer_id: peer.clone(),
+                            name,
+                        });
+                    }
+                    removed && state.listeners.is_empty() && state.listen.phase == Phase::Active
+                };
+                if stop_listen {
+                    self.stop_lane_inner(StreamKind::Listen, "最后一台收听设备切换为麦克风", false)
+                        .await;
                 }
             }
-            AudioControl::Stop { reason } | AudioControl::Error { message: reason } => {
-                let stop = {
-                    let mut state = self.shared.lock();
-                    let was_listener = state.listeners.remove(&peer);
-                    state
-                        .snapshot
-                        .pending_mic_requests
-                        .retain(|r| r.peer_id != peer);
-                    state.snapshot.mic_peer_id.as_deref() == Some(peer.as_str())
-                        || (was_listener
-                            && state.snapshot.mode == "listen"
-                            && state.snapshot.active
-                            && state.listeners.is_empty())
-                };
-                if stop {
-                    self.stop_inner(&reason, true).await;
-                }
+            AudioControl::Unsubscribe => {
+                self.host_stop_peer(&peer, Some(AudioLane::Listen), "设备已停止收听")
+                    .await
+            }
+            AudioControl::Stop { reason, lane } => self.host_stop_peer(&peer, lane, &reason).await,
+            AudioControl::Error { message, lane } => {
+                self.host_stop_peer(&peer, lane, &message).await
             }
             AudioControl::ListenOffer { .. } | AudioControl::MicGrant { .. } => {}
+        }
+    }
+    async fn host_stop_peer(&self, peer: &str, direction: Option<AudioLane>, reason: &str) {
+        let (stop_listen, stop_mic) = {
+            let mut state = self.shared.lock();
+            let may_listen = direction.is_none() || matches!(direction, Some(AudioLane::Listen));
+            let may_mic = direction.is_none() || matches!(direction, Some(AudioLane::Microphone));
+            let removed = may_listen && state.listeners.remove(peer);
+            if may_mic {
+                state.requests.retain(|r| r.peer_id != peer);
+            }
+            (
+                removed && state.listeners.is_empty() && state.listen.phase == Phase::Active,
+                may_mic && state.microphone.peer_id.as_deref() == Some(peer),
+            )
+        };
+        if stop_listen {
+            self.stop_lane_inner(StreamKind::Listen, reason, false)
+                .await;
+        }
+        if stop_mic {
+            self.stop_lane_inner(StreamKind::Microphone, reason, false)
+                .await;
         }
     }
     async fn client_control(&self, peer: String, control: AudioControl) {
@@ -179,9 +187,7 @@ impl AudioService {
             AudioControl::ListenOffer { stream_id } => {
                 let expected = {
                     let state = self.shared.lock();
-                    state.snapshot.mode == "listen"
-                        && state.snapshot.waiting
-                        && state.listeners.contains(&peer)
+                    state.listen.phase == Phase::Waiting && state.listeners.contains(&peer)
                 };
                 if !expected {
                     return;
@@ -193,32 +199,21 @@ impl AudioService {
                     }
                     Err(error) => Err(error),
                 };
-                match result {
-                    Ok(()) => {
-                        let mut state = self.shared.lock();
-                        if state.snapshot.last_error.is_none() {
-                            state.snapshot.waiting = false;
-                        }
-                    }
-                    Err(error) => {
-                        self.stop_inner(&error, true).await;
-                        self.shared.lock().snapshot.last_error = Some(error);
-                    }
+                if let Err(error) = result {
+                    self.stop_lane_inner(StreamKind::Listen, &error, true).await;
+                    self.shared.lock().listen.error = Some(error);
                 }
             }
             AudioControl::MicGrant { stream_id } => {
                 let expected = {
                     let state = self.shared.lock();
-                    state.snapshot.mode == "microphone"
-                        && state.snapshot.waiting
-                        && state.snapshot.mic_peer_id.as_deref() == Some(peer.as_str())
+                    state.microphone.phase == Phase::Waiting
+                        && state.microphone.peer_id.as_deref() == Some(peer.as_str())
                 };
                 if !expected {
                     let _ = self.shared.send(
                         &peer,
-                        AudioControl::Stop {
-                            reason: "手机已取消麦克风请求".into(),
-                        },
+                        AudioControl::stop(StreamKind::Microphone, "手机已取消麦克风请求"),
                     );
                     return;
                 }
@@ -229,28 +224,26 @@ impl AudioService {
                     }
                     Err(error) => Err(error),
                 };
-                match result {
-                    Ok(()) => {
-                        let mut state = self.shared.lock();
-                        if state.snapshot.last_error.is_none() {
-                            state.snapshot.waiting = false;
-                        }
-                    }
-                    Err(error) => {
-                        self.stop_inner(&error, true).await;
-                        self.shared.lock().snapshot.last_error = Some(error);
+                if let Err(error) = result {
+                    self.stop_lane_inner(StreamKind::Microphone, &error, true)
+                        .await;
+                    self.shared.lock().microphone.error = Some(error);
+                }
+            }
+            AudioControl::Stop { reason, lane } => {
+                for kind in [StreamKind::Listen, StreamKind::Microphone] {
+                    if lane.is_none() || lane.map(|lane| lane.kind()) == Some(kind) {
+                        self.stop_lane_inner(kind, &reason, false).await;
                     }
                 }
             }
-            AudioControl::Stop { reason } => {
-                if self.snapshot().mode != "idle" {
-                    self.stop_inner(&reason, false).await;
-                    self.shared.lock().snapshot.last_error = Some(reason);
+            AudioControl::Error { message, lane } => {
+                for kind in [StreamKind::Listen, StreamKind::Microphone] {
+                    if lane.is_none() || lane.map(|lane| lane.kind()) == Some(kind) {
+                        self.stop_lane_inner(kind, &message, true).await;
+                        self.shared.lock().lane_mut(kind).error = Some(message.clone());
+                    }
                 }
-            }
-            AudioControl::Error { message } => {
-                self.stop_inner(&message, true).await;
-                self.shared.lock().snapshot.last_error = Some(message);
             }
             AudioControl::Subscribe | AudioControl::Unsubscribe | AudioControl::MicRequest => {}
         }

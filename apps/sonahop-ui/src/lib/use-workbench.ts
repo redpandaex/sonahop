@@ -5,6 +5,7 @@ import { PREFERENCES_KEY, readPreferences, savePreferences } from "./preferences
 import type { Preferences } from "./preferences";
 import { useLink } from "./use-link";
 import { useAudio } from "./use-audio";
+import { useAutostart } from "./use-autostart";
 import type { AudioMode } from "./preferences";
 import { nativeLinkAvailable } from "./link-bridge";
 
@@ -30,6 +31,7 @@ export function useWorkbench() {
   const [appReady, setAppReady] = useState(false);
   const link = useLink(info.platform, appReady);
   const audio = useAudio(info.platform, appReady);
+  const autostart = useAutostart(info.platform, appReady);
   const [micOutputDeviceId, setMicOutputDeviceId] = useState("");
   const [saved, setSaved] = useState(true);
   const [systemDark, setSystemDark] = useState(
@@ -46,11 +48,11 @@ export function useWorkbench() {
   const switchMode = useCallback(
     async (mode: AudioMode) => {
       if (mode === prefs.mode) return true;
-      if (audio.available && !(await audio.stop())) return false;
+      if (info.platform === "android" && audio.available && !(await audio.stop())) return false;
       update({ mode });
       return true;
     },
-    [prefs.mode, audio.available, audio.stop, update],
+    [prefs.mode, info.platform, audio.available, audio.stop, update],
   );
   const stopLink = useCallback(async () => {
     if (audio.available) await audio.stop();
@@ -58,22 +60,30 @@ export function useWorkbench() {
   }, [audio.available, audio.stop, link.stop]);
   const disconnectPeer = useCallback(
     async (peerId: string) => {
-      if (
-        audio.available &&
-        (info.platform === "android" || audio.snapshot?.micPeerId === peerId)
-      ) {
-        await audio.stop();
-      }
+      if (audio.available && info.platform === "android") await audio.stop();
+      else if (audio.available && audio.snapshot?.micPeerId === peerId)
+        await audio.stopLane("microphone");
       return link.disconnect(peerId);
     },
-    [audio.available, audio.stop, audio.snapshot?.micPeerId, info.platform, link.disconnect],
+    [
+      audio.available,
+      audio.stop,
+      audio.stopLane,
+      audio.snapshot?.micPeerId,
+      info.platform,
+      link.disconnect,
+    ],
   );
   useEffect(() => {
     const mode = audio.snapshot?.mode;
-    if (mode && mode !== "idle" && (audio.snapshot?.active || audio.snapshot?.waiting)) {
+    if (
+      info.platform === "android" &&
+      (mode === "listen" || mode === "microphone") &&
+      (audio.snapshot?.active || audio.snapshot?.waiting)
+    ) {
       setPrefs((previous) => (previous.mode === mode ? previous : { ...previous, mode }));
     }
-  }, [audio.snapshot?.mode, audio.snapshot?.active, audio.snapshot?.waiting]);
+  }, [info.platform, audio.snapshot?.mode, audio.snapshot?.active, audio.snapshot?.waiting]);
   const refreshDevices = useCallback(async () => {
     setLoading(true);
     setDeviceError("");
@@ -141,6 +151,7 @@ export function useWorkbench() {
     prefs,
     link,
     audio,
+    autostart,
     switchMode,
     stopLink,
     disconnectPeer,

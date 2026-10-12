@@ -79,7 +79,7 @@ pub(super) fn spawn(
             };
             if let Err(error) = result {
                 if !thread_cancel.load(Ordering::Acquire) {
-                    shared.fail(epoch, error);
+                    shared.fail(kind, epoch, error);
                 }
             }
         })
@@ -201,7 +201,7 @@ fn capture_loop(
         pending.extend(samples);
         while pending.len() > frame_samples * 4 {
             pending.drain(..frame_samples);
-            shared.lock().snapshot.dropped_packets += 1;
+            shared.lock().lane_mut(kind).dropped_packets += 1;
         }
         while (pending.len() >= frame_samples || Instant::now() >= next_frame)
             && !cancel.load(Ordering::Acquire)
@@ -218,16 +218,16 @@ fn capture_loop(
                 let peers = if kind == StreamKind::Listen {
                     state.listeners.iter().cloned().collect::<Vec<_>>()
                 } else {
-                    state.snapshot.mic_peer_id.iter().cloned().collect()
+                    state.microphone.peer_id.iter().cloned().collect()
                 };
                 (
                     peers,
                     if kind == StreamKind::Microphone {
-                        state.snapshot.gain as f32 / 100.0
+                        state.gain as f32 / 100.0
                     } else {
                         1.0
                     },
-                    state.epoch == epoch,
+                    state.lane(kind).epoch == epoch,
                 )
             };
             if !valid {
@@ -241,13 +241,13 @@ fn capture_loop(
             for peer in peers {
                 let delivered = shared.link.send_media(&peer, packet.clone()).is_ok();
                 let mut state = shared.lock();
-                if state.epoch != epoch {
+                if state.lane(kind).epoch != epoch {
                     return Ok(());
                 }
                 if delivered {
-                    state.snapshot.sent_packets += 1;
+                    state.lane_mut(kind).sent_packets += 1;
                 } else {
-                    state.snapshot.dropped_packets += 1;
+                    state.lane_mut(kind).dropped_packets += 1;
                 }
             }
         }
@@ -362,7 +362,7 @@ fn playback_loop(
         };
         while let Ok(newer) = incoming.try_recv() {
             packet = Some(newer);
-            shared.lock().snapshot.dropped_packets += 1;
+            shared.lock().lane_mut(kind).dropped_packets += 1;
         }
         if Instant::now() < next {
             thread::sleep(next.saturating_duration_since(Instant::now()));
@@ -375,7 +375,7 @@ fn playback_loop(
                     pcm
                 }
                 Ok(None) => {
-                    shared.lock().snapshot.dropped_packets += 1;
+                    shared.lock().lane_mut(kind).dropped_packets += 1;
                     continue;
                 }
                 Err(error) => return Err(format!("音频解码失败：{error}")),
@@ -393,17 +393,13 @@ fn playback_loop(
         };
         let gain = {
             let state = shared.lock();
-            if state.epoch != epoch {
+            if state.lane(kind).epoch != epoch {
                 return Ok(());
             }
-            if kind == StreamKind::Listen {
-                state.snapshot.gain as f32 / 100.0
-            } else {
-                1.0
-            }
+            1.0
         };
         if !sink.write(&to_stereo(&pcm, kind, gain))? {
-            shared.lock().snapshot.dropped_packets += 1;
+            shared.lock().lane_mut(kind).dropped_packets += 1;
         }
         next += frame_time;
         if next + frame_time < Instant::now() {

@@ -1,9 +1,10 @@
 [CmdletBinding()]
-param([ValidateSet('Windows','Android','Both')][string]$Platform='Both')
+param([ValidateSet('Windows','Android','Both')][string]$Platform='Both', [string]$OutputDirectory='artifacts/audio-mvp')
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location -LiteralPath $repoRoot
-$artifactDir=Join-Path $repoRoot 'artifacts/audio-mvp'
+$artifactDir=[IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
+if(-not $artifactDir.StartsWith($repoRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw "Artifact directory must be inside the repository." }
 New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
 $environmentNames=@('Path','CMAKE','OPUS_LIB_DIR','OPUS_STATIC','JAVA_HOME','ANDROID_HOME','NDK_HOME')
 $previousEnvironment=@{}

@@ -2,9 +2,19 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Platform } from "./bridge";
 import type { AudioMode } from "./preferences";
 
+export interface LaneSnapshot {
+  active: boolean;
+  waiting: boolean;
+  lastError: string | null;
+  sentPackets: number;
+  receivedPackets: number;
+  droppedPackets: number;
+}
 export interface AudioSnapshot {
+  listen: LaneSnapshot;
+  microphone: LaneSnapshot;
   role: "host" | "client";
-  mode: "idle" | "listen" | "microphone";
+  mode: "idle" | "listen" | "microphone" | "duplex";
   active: boolean;
   waiting: boolean;
   micPeerId: string | null;
@@ -25,6 +35,8 @@ export const answerMicrophoneRequest = (
   outputDeviceId: string | null,
 ) => invoke<AudioSnapshot>("answer_microphone_request", { peerId, approve, outputDeviceId });
 export const stopAudio = () => invoke<AudioSnapshot>("stop_audio");
+export const stopAudioLane = (lane: AudioMode) =>
+  invoke<AudioSnapshot>("stop_audio_lane", { lane });
 export const setAudioGain = (gain: number) => invoke<AudioSnapshot>("set_audio_gain", { gain });
 
 export async function prepareAudio(platform: Platform, mode: AudioMode): Promise<void> {

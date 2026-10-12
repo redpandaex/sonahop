@@ -4,18 +4,28 @@
 
 ## 当前交付状态
 
-首版音频源码已经接入：局域网发现、输入连接码、电脑批准、加密传输、Windows 系统声音采集、Android 收听与后台麦克风、Windows 既有虚拟音频设备输出、独立手机增益和真实状态界面。
+当前源码支持两台 Android 与 Windows 配对；Windows 可同时共享系统声音、接收一台手机麦克风。手机/平板一次运行一个方向，因此可用一台手机供麦克风、另一台平板收听。接收播放使用系统媒体音量键，麦克风增益保留。
 
-**本次已生成当前 Windows release exe 和 Android ARM64 debug APK，前端、双端 Rust 与 Android Java/Kotlin 编译通过；未运行自动测试、启动应用、播放/录音或真机验证。** 请使用 `artifacts/audio-mvp` 新产物，同时更新两端；`artifacts/ui-preview` 仍是旧界面版本，旧协议客户端不能连接新版本。
+本轮 Windows release / Android ARM64 debug 与前端生产构建成功，APK 签名检查通过。未启动应用、录音/播放、运行自动测试或设备验证，也没有在本机实际注册自启。此前用户确认基本收听已可用；新增混合收发和启动设置待用户复测。
 
-范围为 Windows 11 和 Android 16。收听最多两台设备；麦克风一次一台，并暂停全部收听。完整双工、自带驱动、专用 USB 音频、Linux/macOS/iOS 后续实施。
+## 最新测试包
 
-## 当前真机修复包
+同时更新电脑及两台 Android：
 
-首次用户测试发现两个问题，已分别修正并编译：Android 前台状态误判，以及 Windows 系统采集参数被重复释放导致 0xc0000374 退出。
+- `artifacts/independent-audio/sonahop-windows.exe`
+- `artifacts/independent-audio/sonahop-android-arm64-debug.apk`
 
-现阶段复测请使用 `artifacts/audio-mvp/sonahop-windows-heap-fix.exe` 和 `sonahop-android-foreground-fix.apk`。关掉旧 Windows 程序，重新开启联网/配对，再验证共享。修复根因和构建证据在对应的 2026-10-12 Superpowers 修复记录中；尚未由 agent 运行音频或真机复测。
+旧 audio-mvp / ui-preview 包保留为历史版本。最新包包含 Android 前台状态和 Windows 采集参数重复释放的修复，以及独立音频方向和 Windows 自启设置。
 
+1. 平板配对后开始收听，Windows 开始共享并播放歌曲。
+2. 手机配对、切换麦克风并申请；Windows 选择已安装的虚拟音频线播放入口并批准。
+3. 检查平板仍播放，电脑应用选择该虚拟线的录音出口后能收到手机说话。
+4. Windows 两个控制区分别停止共享、停止麦克风，检查另一方向保持；切换电脑界面也不停止音频。
+5. Android 使用系统媒体音量键；Windows 设置中自启初始关闭，可由用户手动切换。
+
+自启只在用户登录 Windows 后打开应用，不自动联网、共享声音或录音。启动项记录当前程序位置，先将 exe 放在固定位置再启用。关闭启动开关会移除该应用的注册项。应用初始化不调用 enable/disable，保留用户已经选择的状态。
+
+此次保持原有网络超时、配对与重连策略；偶发断线按用户要求留待后续。手机作为服务器、手机↔手机和同一 Android 同时录放尚未实现。
 ## 构建当前版本
 
 本机需要 JDK 21、SDK platform 37、NDK `30.0.16248370`、Visual Studio C++ 与 CMake/Ninja，以及 Rust Android target `aarch64-linux-android`。
@@ -43,22 +53,11 @@ pnpm mvp:build
 - `artifacts/audio-mvp/sonahop-windows.exe`
 - `artifacts/audio-mvp/sonahop-android-arm64-debug.apk`
 
-Android 脚本先由 Tauri 生成当前原生插件依赖并编译 Rust。只有明确的 Windows 符号链接权限错误且 Rust 已成功完成时，才复制当前 `.so` 后调用 Gradle 打包；其他编译错误直接停止。不会复用一次失败编译留下的旧预览包。构建日志位于 `artifacts/audio-mvp/android-build.log`。本轮脚本已成功执行；最后构建日志见 `artifacts/audio-mvp/final-build.log`，Android 完整日志见上述文件。
-
-## 明早先这样测试
-
-1. 电脑和 Y700 连接同一个 Wi-Fi / 局域网，启动刚构建的两端。Windows 点击开启局域网；如 Windows 弹出防火墙授权，允许专用网络。不会由应用自动修改防火墙。
-2. Android 点击搜索，填写电脑显示的六位连接码后连接；Windows 核对设备名称和双方显示的验证码后批准。找不到时填电脑实际 LAN IPv4 地址；端口为 TCP `32993`，发现使用 UDP `32992`，不需要重启应用。
-3. Windows 点击开始共享；Android 点击开始收听。电脑播放歌曲，检查 Android 是否听到，并调节手机音量。再把电脑本地扬声器静音，检查手机声音仍继续。
-4. 在第二台 Android 重复连接、批准、收听；分别改变两台设备增益，检查互不影响。停止一台，另一台应继续；断开最后一台时应释放电脑采集。
-5. 麦克风测试前准备已经安装的虚拟音频线。Android 切换麦克风并主动申请、允许录音；Windows 选择虚拟线的播放入口（例如 CABLE Input）并批准。电脑录音/会议软件选择对应录音出口，检查手机说话是否进入软件；两台设备收听此时应暂停。
-6. 检查手机锁屏/切换其他应用后的持续播放或录音，以及停止按钮、通知栏停止、断开网络后的硬件释放。Android 麦克风不得自动重新启动；重新连接后需再次主动申请。
-
-若列表只有显示器和 Realtek 物理设备，表示当前没有可选的虚拟音频入口；先完成电脑→手机，再准备麦克风测试。项目不会安装驱动，也不会自动选择物理扬声器作为麦克风路径。
+Android 脚本先由 Tauri 生成当前原生插件依赖并编译 Rust。只有明确的 Windows 符号链接权限错误且 Rust 已成功完成时，才复制当前 `.so` 后调用 Gradle 打包；其他编译错误直接停止。不会复用一次失败编译留下的旧预览包。构建日志位于 `artifacts/audio-mvp/android-build.log`。本轮独立音频包最后构建日志见 `artifacts/independent-audio/build.log`；脚本可通过 `-OutputDirectory` 指定仓库内产物目录。
 
 ## 音频路径
 
-电脑→手机使用 Windows 进程级系统声音捕获，排除 SonaHop 本身；与原 CLI 的端点 loopback 诊断路径分开。Android 使用 AudioTrack 播放，手机增益在 Rust 解码后应用，不修改电脑音量。
+电脑→手机使用 Windows 进程级系统声音捕获，排除 SonaHop 本身；与原 CLI 的端点 loopback 诊断路径分开。Android 使用 AudioTrack 播放，播放固定单位增益，使用设备系统媒体音量，不修改电脑音量。
 
 手机→电脑使用 Android AudioRecord（mono 48 kHz PCM16）与原生 foreground service，经 JNI 交给 Rust Opus 编码后传输；电脑解码并写入用户指定的现有虚拟音频 render 端点。
 

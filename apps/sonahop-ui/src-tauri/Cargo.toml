@@ -29,3 +29,6 @@ tokio = { version = "=1.52.0", features = ["sync", "rt", "time", "macros"] }
 
 [target."cfg(windows)".dependencies]
 sonahop-platform-windows = { version = "0.1.0", path = "../../../crates/sonahop-platform-windows" }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"

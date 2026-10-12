@@ -128,6 +128,16 @@ export function VolumeControl({
   microphone?: boolean;
 }) {
   const { prefs, update } = workbench;
+  if (!microphone)
+    return (
+      <section className="system-volume-note" aria-label="系统媒体音量">
+        <SpeakerHighIcon size={23} weight="bold" aria-hidden />
+        <div>
+          <h3>使用设备音量键调节</h3>
+          <p>播放音量由手机或平板的系统媒体音量控制，SonaHop 不再额外衰减声音。</p>
+        </div>
+      </section>
+    );
   return (
     <section className="volume-control" aria-labelledby="volume-title">
       <div className="control-title">

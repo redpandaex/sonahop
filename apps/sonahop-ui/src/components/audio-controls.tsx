@@ -4,7 +4,6 @@ import {
   CaretDownIcon,
   ArrowClockwiseIcon,
   MicrophoneIcon,
-  WifiHighIcon,
 } from "@phosphor-icons/react";
 import { ErrorMessage, StatusBadge } from "./controls";
 import type { Workbench } from "../lib/use-workbench";
@@ -13,6 +12,8 @@ export function audioStatusLabel(w: Workbench): string {
   if (!w.audio.available) return w.info.browserPreview ? "浏览器布局预览" : "音频服务未就绪";
   const value = w.audio.snapshot;
   if (!value) return "正在读取音频状态";
+  if (value.role === "host" && value.listen.active && value.microphone.active)
+    return "共享声音 · 接收手机麦克风";
   if (value.active) {
     if (value.mode === "microphone")
       return value.role === "host" ? "接收手机麦克风" : "麦克风传输中";
@@ -26,8 +27,14 @@ export function audioStatusLabel(w: Workbench): string {
   return "音频已停止";
 }
 
-export function AudioDiagnostics({ workbench: w }: { workbench: Workbench }) {
-  const snapshot = w.audio.snapshot;
+export function AudioDiagnostics({
+  workbench: w,
+  lane,
+}: {
+  workbench: Workbench;
+  lane?: "listen" | "microphone";
+}) {
+  const snapshot = lane ? w.audio.snapshot?.[lane] : w.audio.snapshot;
   if (!snapshot || w.info.browserPreview) return null;
   return (
     <div className="audio-diagnostics" aria-label="音频链路统计">
@@ -45,7 +52,7 @@ export function AudioDiagnostics({ workbench: w }: { workbench: Workbench }) {
 }
 
 export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }) {
-  const activeMic = w.audio.snapshot?.active && w.audio.snapshot.mode === "microphone";
+  const activeMic = w.audio.snapshot?.microphone.active;
   const value = activeMic
     ? (w.audio.snapshot?.outputDeviceId ?? w.micOutputDeviceId)
     : w.micOutputDeviceId;
@@ -111,7 +118,7 @@ export function MicrophoneRequests({ workbench: w }: { workbench: Workbench }) {
         <MicrophoneIcon size={20} weight="bold" />
       </div>
       <p className="lan-note">
-        只允许一台设备提供麦克风。接受申请会停止电脑声音共享和其它设备的收听。
+        只允许一台设备提供麦克风。接受申请时，其它手机或平板可以继续收听电脑声音。
       </p>
       <VirtualOutputSelector workbench={w} />
       {requests.map((request) => (
@@ -150,52 +157,56 @@ export function MicrophoneRequests({ workbench: w }: { workbench: Workbench }) {
 
 export function HostAudioAction({ workbench: w }: { workbench: Workbench }) {
   const snapshot = w.audio.snapshot;
-  const started = Boolean(snapshot?.active || snapshot?.waiting);
-  const microphone = w.prefs.mode === "microphone";
-  const disabled =
-    !w.audio.available ||
-    !snapshot ||
-    w.audio.busy ||
-    w.link.busy ||
-    (!started && (microphone || !w.link.snapshot?.peers.length));
+  const listening = Boolean(snapshot?.listen.active || snapshot?.listen.waiting);
+  const microphone = Boolean(snapshot?.microphone.active || snapshot?.microphone.waiting);
+  const busy = !w.audio.available || !snapshot || w.audio.busy || w.link.busy;
+  const micName = w.link.snapshot?.peers.find((peer) => peer.id === snapshot?.micPeerId)?.name;
   return (
     <>
       <MicrophoneRequests workbench={w} />
       {w.audio.error && <ErrorMessage message={w.audio.error} />}
-      <div className="share-bar">
-        <div>
-          <span className="share-status-icon">
-            <WifiHighIcon size={22} weight="bold" />
-          </span>
-          <div>
-            <h3>{audioStatusLabel(w)}</h3>
-            <p>
-              {microphone
-                ? "由手机主动申请，在此选择虚拟音频线并批准。"
-                : "采集系统声音，独立于电脑扬声器音量；最多两台设备收听。"}
-            </p>
+      <div className="audio-direction-actions">
+        <section className="panel audio-direction-control" aria-label="电脑声音共享">
+          <div className="panel-heading">
+            <h2>共享电脑声音</h2>
+            <StatusBadge label={listening ? "共享中" : "已停止"} />
           </div>
-        </div>
-        <Button
-          className={started ? "secondary-button" : "primary-button"}
-          disabled={disabled}
-          onClick={() => void (started ? w.audio.stop() : w.audio.startListen(w.prefs.volume))}
-        >
-          {w.audio.busy
-            ? "处理中…"
-            : started
-              ? "停止音频"
-              : microphone
-                ? "等待手机申请"
-                : "开始共享"}
-          <ArrowRightIcon size={18} weight="bold" />
-        </Button>
+          <p className="field-help">
+            最多两台设备收听，接收设备使用系统音量键。停止共享不会停止手机麦克风。
+          </p>
+          <Button
+            className={listening ? "secondary-button" : "primary-button"}
+            disabled={busy || (!listening && !w.link.snapshot?.peers.length)}
+            onClick={() => void (listening ? w.audio.stopLane("listen") : w.audio.startListen())}
+          >
+            {w.audio.busy ? "处理中…" : listening ? "停止共享" : "开始共享"}
+            <ArrowRightIcon size={18} weight="bold" />
+          </Button>
+          <AudioDiagnostics workbench={w} lane="listen" />
+        </section>
+        <section className="panel audio-direction-control" aria-label="手机麦克风接收">
+          <div className="panel-heading">
+            <h2>接收手机麦克风</h2>
+            <StatusBadge label={microphone ? "接收中" : "已停止"} />
+          </div>
+          <p className="field-help">
+            {microphone
+              ? `${micName ?? "已选择的手机"}正在提供麦克风；平板可以同时收听。`
+              : "由手机主动申请，在电脑选择虚拟音频线入口并批准。"}
+          </p>
+          <Button
+            className="secondary-button"
+            disabled={busy || !microphone}
+            onClick={() => void w.audio.stopLane("microphone")}
+          >
+            {w.audio.busy ? "处理中…" : microphone ? "停止麦克风" : "等待手机申请"}
+          </Button>
+          <AudioDiagnostics workbench={w} lane="microphone" />
+        </section>
       </div>
-      <AudioDiagnostics workbench={w} />
     </>
   );
 }
-
 export function MobileAudioAction({ workbench: w }: { workbench: Workbench }) {
   const value = w.audio.snapshot;
   const started = Boolean(value?.active || value?.waiting);
@@ -218,7 +229,7 @@ export function MobileAudioAction({ workbench: w }: { workbench: Workbench }) {
             ? w.audio.stop()
             : microphone
               ? w.audio.requestMic(w.prefs.volume)
-              : w.audio.startListen(w.prefs.volume))
+              : w.audio.startListen())
         }
       >
         {w.audio.busy
@@ -240,8 +251,8 @@ export function MobileAudioAction({ workbench: w }: { workbench: Workbench }) {
             ? "在 Windows 上选择虚拟音频线入口并接受申请，批准前不会采集声音。"
             : "请在 Windows 上点击开始共享，收到音频后会开始播放。"
           : microphone
-            ? "只在你主动申请并获电脑批准后采集声音；启用后会暂停所有收听。"
-            : "此设备音量与电脑本地扬声器音量独立。"}
+            ? "只在你主动申请并获电脑批准后采集声音；其它设备可以继续收听。"
+            : "使用手机或平板的音量键调节，不改变电脑扬声器音量。"}
       </p>
       <AudioDiagnostics workbench={w} />
     </div>

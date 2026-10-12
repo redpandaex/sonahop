@@ -9,6 +9,7 @@ import {
   setAudioGain,
   startListening,
   stopAudio,
+  stopAudioLane,
 } from "./audio-bridge";
 import type { AudioSnapshot } from "./audio-bridge";
 
@@ -113,10 +114,9 @@ export function useAudio(platform: Platform, appReady: boolean) {
   );
 
   const startListen = useCallback(
-    (gain: number) =>
+    () =>
       perform(async () => {
         await prepareAudio(platform, "listen");
-        await setAudioGain(gain);
         return startListening();
       }),
     [perform, platform],
@@ -136,6 +136,10 @@ export function useAudio(platform: Platform, appReady: boolean) {
     [perform],
   );
   const stop = useCallback(() => perform(stopAudio), [perform]);
+  const stopLane = useCallback(
+    (lane: "listen" | "microphone") => perform(() => stopAudioLane(lane)),
+    [perform],
+  );
   const setGain = useCallback((gain: number) => perform(() => setAudioGain(gain)), [perform]);
   return {
     snapshot,
@@ -146,6 +150,7 @@ export function useAudio(platform: Platform, appReady: boolean) {
     requestMic,
     answerMic,
     stop,
+    stopLane,
     setGain,
   };
 }

@@ -13,7 +13,10 @@ pub fn run() {
     } else {
         LinkRole::Host
     };
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_autostart::Builder::new().build());
+    let app = builder
         .plugin(tauri_plugin_sonahop_lan::init())
         .manage(Arc::new(LinkService::new(role)))
         .setup(move |app| {
@@ -37,6 +40,7 @@ pub fn run() {
             audio_commands::request_microphone,
             audio_commands::answer_microphone_request,
             audio_commands::stop_audio,
+            audio_commands::stop_audio_lane,
             audio_commands::set_audio_gain,
         ])
         .build(tauri::generate_context!())

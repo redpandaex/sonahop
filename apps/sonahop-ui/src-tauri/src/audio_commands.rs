@@ -1,4 +1,4 @@
-use crate::audio::{AudioService, AudioSnapshot};
+use crate::audio::{AudioLane, AudioService, AudioSnapshot};
 use std::sync::Arc;
 use tauri::State;
 #[tauri::command]
@@ -38,4 +38,12 @@ pub fn set_audio_gain(
     service: State<'_, Arc<AudioService>>,
 ) -> Result<AudioSnapshot, String> {
     service.set_gain(gain)
+}
+
+#[tauri::command]
+pub async fn stop_audio_lane(
+    lane: AudioLane,
+    service: State<'_, Arc<AudioService>>,
+) -> Result<AudioSnapshot, String> {
+    Ok(service.stop_lane(lane).await)
 }

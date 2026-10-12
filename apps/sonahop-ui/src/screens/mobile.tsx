@@ -164,8 +164,8 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
                   <RouteDiagram mode={w.prefs.mode} mobile />
                   <p>
                     {microphone
-                      ? "启用麦克风时，电脑声音收听会暂停。"
-                      : "收听与麦克风模式分别运行。"}
+                      ? "此设备提供麦克风时，另一台平板仍可以收听电脑声音。"
+                      : "这台设备一次运行一个方向，电脑可同时共享声音和接收麦克风。"}
                   </p>
                 </section>
               </div>

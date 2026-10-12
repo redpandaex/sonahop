@@ -20,12 +20,12 @@
 ## Confirmed product milestone
 - Windows 11 host; Xiaomi 17 Pro Max and Lenovo Y700 generation 4, both Android 16.
 - Listen mode supports two Android listeners.
-- Microphone mode accepts one selected Android and pauses all listening.
+- Windows may share system audio and receive one selected Android microphone concurrently. Each Android still runs only one audio direction; a second tablet can listen while a phone provides the microphone.
 - Initial microphone support uses an existing user-installed Windows virtual audio path.
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/specs/2026-10-12-audio-mvp.md and the matching plan. Earlier UI and protocol-v1 LAN documents are historical stages.
+- Follow docs/superpowers/specs/2026-10-12-independent-audio.md and the matching plan. Earlier UI, LAN and exclusive audio MVP documents are historical stages.
 - The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
 - Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
 - Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
@@ -37,3 +37,10 @@
 - Use Biome for formatting/lint and Tailwind CSS 4 with the Vite plugin for styles. shadcn/ui Radix components live in apps/sonahop-ui/src/components/ui.
 - Use the official shadcn CLI to add components; keep the current data-theme light/dark/system behavior and native palette.
 - The owner runs tests and interactive validation personally. Final packaging is authorized by the latest overnight request; do not launch tests, apps or device/audio verification automatically. Provide concise manual acceptance steps with the built artifacts.
+
+## Current accepted changes
+- The owner asked to implement volume-control removal, default-off Windows autostart and independent Windows listen/microphone lanes, then they will test.
+- Preserve LAN timeouts/reconnect behavior for this stage; the owner explicitly deferred disconnection work.
+- Receiving playback uses unit gain and the Android media-volume keys; microphone gain is retained.
+- Autostart registration happens only after a user toggle, never automatically during app startup or agent verification.
+- Phone hosting and phone-to-phone audio remain future work.

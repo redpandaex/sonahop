@@ -30,10 +30,7 @@ fn transient_datagram_error(error: &std::io::Error) -> bool {
 }
 
 fn publish_interfaces(inner: &Inner, generation: u64, interfaces: &[LanInterface]) {
-    let addresses = interfaces
-        .iter()
-        .map(|i| i.ip.to_string())
-        .collect::<Vec<_>>();
+    let addresses = interfaces::display_addresses(interfaces);
     {
         let mut state = inner.lock();
         if !current(&state, generation) {

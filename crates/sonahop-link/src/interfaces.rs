@@ -10,6 +10,8 @@ pub(crate) struct LanInterface {
     pub mask: Ipv4Addr,
     pub broadcast: Ipv4Addr,
     pub index: Option<u32>,
+    #[cfg(windows)]
+    pub wireless: bool,
 }
 pub(crate) fn local_interfaces() -> Vec<LanInterface> {
     let mut interfaces = Vec::new();
@@ -32,12 +34,16 @@ pub(crate) fn local_interfaces() -> Vec<LanInterface> {
         let broadcast = addr
             .broadcast
             .unwrap_or_else(|| Ipv4Addr::from(u32::from(addr.ip) | !u32::from(addr.netmask)));
+        #[cfg(windows)]
+        let wireless = wireless_interface(iface.index);
         interfaces.push(LanInterface {
             name: iface.name,
             ip: addr.ip,
             mask: addr.netmask,
             broadcast,
             index: iface.index,
+            #[cfg(windows)]
+            wireless,
         });
     }
     interfaces.sort_by_key(|i| i.ip);
@@ -45,6 +51,30 @@ pub(crate) fn local_interfaces() -> Vec<LanInterface> {
     interfaces.truncate(12);
     interfaces
 }
+pub(crate) fn display_addresses(interfaces: &[LanInterface]) -> Vec<String> {
+    // Restrict Windows address presentation only; discovery still uses every eligible interface.
+    #[cfg(windows)]
+    let visible = interfaces.iter().filter(|interface| interface.wireless);
+    #[cfg(not(windows))]
+    let visible = interfaces.iter();
+    visible.map(|interface| interface.ip.to_string()).collect()
+}
+#[cfg(windows)]
+fn wireless_interface(index: Option<u32>) -> bool {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetIfEntry2, IF_TYPE_IEEE80211, MIB_IF_ROW2,
+    };
+    let Some(index) = index else {
+        return false;
+    };
+    let mut row = MIB_IF_ROW2 {
+        InterfaceIndex: index,
+        ..Default::default()
+    };
+    // Windows fills this zero-initialized local structure during the call.
+    unsafe { GetIfEntry2(&mut row) == 0 && row.Type == IF_TYPE_IEEE80211 }
+}
+
 fn matching<'a>(interfaces: &'a [LanInterface], target: Ipv4Addr) -> Option<&'a LanInterface> {
     interfaces
         .iter()

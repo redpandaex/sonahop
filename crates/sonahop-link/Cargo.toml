@@ -19,4 +19,4 @@ tokio = { version = "=1.52.0", features = ["rt", "sync", "net", "time", "io-util
 uuid = { version = "1.26.1", features = ["v4"] }
 
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }

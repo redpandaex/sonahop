@@ -127,7 +127,7 @@ button:active:not(:disabled) {
 }
 button:focus-visible,
 a:focus-visible,
-input:focus-visible,
+input:not([data-slot="input"]):focus-visible,
 select:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 4px;
@@ -2146,4 +2146,35 @@ html {
 
 .lan-service-row:empty {
   display: none;
+}
+
+/* A single focus treatment for text fields; native ranges keep their keyboard outline. */
+input[data-slot="input"] {
+  border-color: var(--input);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  box-shadow: none;
+  transition:
+    border-color 160ms,
+    box-shadow 160ms;
+}
+input[data-slot="input"]:focus {
+  border-color: var(--green);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 12%, transparent);
+}
+input[data-slot="input"][aria-invalid="true"] {
+  border-color: var(--danger);
+}
+input[data-slot="input"][aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 12%, transparent);
+}
+@media (forced-colors: active) {
+  input[data-slot="input"]:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
 }

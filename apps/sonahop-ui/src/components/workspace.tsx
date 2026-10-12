@@ -9,6 +9,7 @@ import {
   CheckCircleIcon,
 } from "@phosphor-icons/react";
 import { ErrorMessage } from "./controls";
+import { parseLinkAddress, normalizeStoredAddress } from "../lib/connection-address.ts";
 import { HostLinkPanel, ClientLinkPanel } from "./lan-connection";
 import { ServerAudioPanel, PlayerAudioPanel, RemoteMicrophonePanel } from "./audio-controls";
 import type { Workbench } from "../lib/use-workbench";
@@ -67,6 +68,7 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
   const [name, setName] = useState(w.prefs.computerName);
   const [address, setAddress] = useState(w.prefs.computerAddress);
   const [saved, setSaved] = useState(false);
+  const [addressError, setAddressError] = useState("");
   return (
     <section className="panel computer-panel saved-server-panel">
       <div className="panel-heading">
@@ -79,6 +81,7 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
             setAddress(w.prefs.computerAddress);
             setEditing(!editing);
             setSaved(false);
+            setAddressError("");
           }}
         >
           <PencilSimpleIcon size={18} weight="bold" />
@@ -89,12 +92,19 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
           className="computer-form"
           onSubmit={(event) => {
             event.preventDefault();
-            w.update({
-              computerName: name.trim() || "我的共享设备",
-              computerAddress: address.trim(),
-            });
-            setEditing(false);
-            setSaved(true);
+            setAddressError("");
+            try {
+              const ip = address.trim() ? parseLinkAddress(address).address : "";
+              w.update({
+                computerName: name.trim() || "我的共享设备",
+                computerAddress: ip,
+              });
+              setAddress(ip);
+              setEditing(false);
+              setSaved(true);
+            } catch (error) {
+              setAddressError(String(error));
+            }
           }}
         >
           <label className="field-label" htmlFor="saved-server-name">
@@ -108,19 +118,32 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
             placeholder="我的共享设备"
           />
           <label className="field-label" htmlFor="saved-server-address">
-            共享设备地址
+            共享设备 IP
           </label>
           <Input
             id="saved-server-address"
-            maxLength={255}
+            aria-invalid={Boolean(addressError)}
+            maxLength={15}
             value={address}
-            onChange={(event) => setAddress(event.currentTarget.value)}
-            placeholder="192.168.1.10:32993"
-            inputMode="url"
+            onChange={(event) => {
+              setAddress(event.currentTarget.value);
+              setAddressError("");
+            }}
+            onPaste={(event) => {
+              const pasted = normalizeStoredAddress(event.clipboardData.getData("text"));
+              if (pasted) {
+                event.preventDefault();
+                setAddress(pasted);
+                setAddressError("");
+              }
+            }}
+            placeholder="192.168.1.10"
+            inputMode="decimal"
             autoCapitalize="off"
             autoComplete="off"
             spellCheck={false}
           />
+          {addressError && <ErrorMessage message={addressError} />}
           <div className="form-actions">
             <Button className="secondary-button" type="button" onClick={() => setEditing(false)}>
               取消

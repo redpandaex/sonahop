@@ -363,7 +363,13 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           )}
         </span>
         <div>
-          <h3>{microphone ? "本机麦克风" : "本设备扬声器 / 耳机"}</h3>
+          <h3>
+            {microphone
+              ? "本机麦克风"
+              : w.info.platform === "windows"
+                ? "本机音频输出"
+                : "本设备扬声器 / 耳机"}
+          </h3>
           {!microphone && started && w.audio.snapshot?.remoteSource && (
             <p>{w.audio.snapshot.remoteSource === "microphone" ? "麦克风声音" : "应用声音"}</p>
           )}
@@ -380,7 +386,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
             <>
               <DeviceChoice
                 id="player-output"
-                label="本应用播放出口"
+                label="音频输出设备"
                 value={w.prefs.outputDeviceId}
                 devices={w.devices}
                 defaultLabel="当前默认播放设备"

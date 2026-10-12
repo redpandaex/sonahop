@@ -2,7 +2,7 @@
 
 以 Rust 为核心、Tauri 提供 Windows / Android 界面的跨设备音频项目。
 
-## 当前交付：0.4.1
+## 当前交付：0.4.2
 
 Windows 和 Android 都可共享本机声音，也可收听另一台设备。一个共享设备最多连接两台收听设备；内部播放声音与本机麦克风分别选择，不混音。Windows 共享端还可独立接收一台远端麦克风到用户已有的虚拟音频线。
 
@@ -10,16 +10,16 @@ Windows 和 Android 都可共享本机声音，也可收听另一台设备。一
 
 ## 最新安装包
 
-- artifacts/ui-refinement/sonahop-windows.exe
-- artifacts/ui-refinement/sonahop-android-arm64-debug.apk
+- artifacts/address-polish/sonahop-windows.exe
+- artifacts/address-polish/sonahop-android-arm64-debug.apk
 
-电脑和两台 Android 可覆盖更新到 0.4.1。Android 为 ARM64 debug 包，保留原 debug 签名，versionCode 4001；历史 artifacts/discovery-ui 是 0.4.0，artifacts/multi-role 是 0.3.0。
+电脑和两台 Android 可覆盖更新到 0.4.2。Android 为 ARM64 debug 包，保留原 debug 签名，versionCode 4002；历史 artifacts/ui-refinement 是 0.4.1，artifacts/discovery-ui 是 0.4.0。
 
 新 Windows exe 路径可能触发新的防火墙提示，请允许在本地网络通信；也可先关闭旧程序，再将新版替换到原先允许的 exe 路径。不要同时运行两个版本。
 
 ## 小米共享，电脑和平板一起听
 
-1. 小米打开“共享”，等待自动发现启动；连接区显示本机 IPv4 地址、端口 32993 和六位 PIN。
+1. 小米打开“共享”，等待自动发现启动；连接区显示本机 IPv4 地址和六位 PIN。
 2. 电脑和 Y700 打开“收听”，填小米的 PIN，选择发现的小米；在小米核对并接受两台设备。
 3. 小米选择“应用声音”并点击开始共享，允许录音权限；在 Android 系统授权窗口选择单个应用或整个屏幕。选择单个应用时，下一步由系统页面选择应用。SonaHop 不再显示另一套范围/应用列表。
 4. 电脑和 Y700 各点击开始收听，小米切到所选音乐/视频应用播放。采集只转发音频，不创建屏幕录像；目标应用必须允许音频采集。[Android 采集规则](https://developer.android.com/media/platform/av-capture)
@@ -33,13 +33,22 @@ Windows 的内部播放声音仍采用进程音频采集，排除 SonaHop 自身
 
 手机提供 Windows 会议麦克风仍走独立路径：手机在“收听”页连接 Windows 共享端，切换到上传麦克风并主动申请；Windows 展开“提供给电脑应用的麦克风”，选择用户已安装的虚拟音频线播放端（如 CABLE Input）并批准，会议应用再选择对应录音端。Realtek/HDMI 扬声器不能变为录音设备。手机麦克风不会自动混入系统共享。
 
-Windows 收听端可选择 SonaHop 的播放出口，空值使用默认设备，不修改系统默认音频设备。手机和平板使用系统媒体音量键；播放增益固定为 1，麦克风增益单独保留。
+Windows 收听端可选择 SonaHop 的音频输出设备，空值使用默认设备，不修改系统默认音频设备。手机和平板使用系统媒体音量键；播放增益固定为 1，麦克风增益单独保留。
+
+## 手机共享麦克风，Windows 接收给会议应用
+
+1. 手机进入“共享”，选择“本机麦克风”，主动开始并授权。
+2. Windows 进入“收听”，使用手机的 IP/PIN 连接，在手机确认连接。
+3. 若已安装虚拟音频线，在 Windows“音频输出设备”选择它的播放端（如 CABLE Input），再开始收听。
+4. 在会议或录音应用里选择该虚拟音频线的对应录音端。此路径沿用现有接收输出能力，不安装驱动或更改 Windows 默认设备。
+
+这个角色组合参考 [AudioRelay 手机麦克风流程](https://audiorelay.net/docs/windows/use-your-phone-as-a-mic-for-windows)：手机共享麦克风，Windows 接收到虚拟麦克风，业务应用使用其录音端。SonaHop 当前使用用户已有的虚拟音频线；自带虚拟麦克风驱动与专门的接收输出目的切换仍属于后续范围。
 
 ## 发现、授权与诊断
 
 发现按运行中的本地 IPv4 接口绑定 socket，发送各子网广播并接收回复；Windows 同子网 TCP 连接也选择对应接口。接口变化会刷新发现任务；暂时的 UDP 重置继续接收，致命接收错误会显示失败与重试。以上只调整 SonaHop socket，不改 VPN、系统路由或防火墙。
 
-若自动搜索不到，在共享端复制本机地址，在收听端填地址和 PIN 连接。多网卡设备可能列出多个地址，请优先使用与另一台设备处于同一 Wi-Fi 网段的地址。用户已验证 0.4.0 的 Windows/Android 可互联；0.4.1 保留这些网络逻辑。按最新反馈保留全部内网地址，不增加 WLAN 过滤。
+若自动搜索不到，在共享端复制本机 IP，在收听端填写 IP 和 PIN 连接。多网卡设备可能列出多个地址，请优先使用与另一台设备处于同一 Wi-Fi 网段的地址。用户已验证 0.4.0 的 Windows/Android 可互联；0.4.1 保留这些网络逻辑。Windows 地址区仅显示 Wi-Fi 接口地址，Android 保留原地址列表。界面、复制及手动填写只使用 IP；旧保存或粘贴的 IP:端口 会转为 IP，内部仍使用固定控制端口。发现与连接继续使用完整接口列表。
 
 Android 内部播放采集需要 Android 10+ 和每次新的系统授权。音频服务持有前台通知，不夺取被采集应用的音频焦点；授权撤销、通知停止、服务结束或错误均终止采集，不自动重启麦克风。
 
@@ -58,10 +67,10 @@ pnpm install --frozen-lockfile
 $env:JAVA_HOME = 'D:\ProgramFiles\java\jdk-21.0.12.1+1'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
 $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
-./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/ui-refinement
+./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/address-polish
 ```
 
-脚本只编译打包，不启动应用或录音。Tauri 先生成插件依赖并编译当前 Rust，只有明确的 Windows 符号链接权限错误才使用同一次成功编译的 .so 交给 Gradle。交付记录在 artifacts/ui-refinement/build-info.json，构建日志在同目录 build.log 和 android-build.log。
+脚本只编译打包，不启动应用或录音。Tauri 先生成插件依赖并编译当前 Rust，只有明确的 Windows 符号链接权限错误才使用同一次成功编译的 .so 交给 Gradle。交付记录在 artifacts/address-polish/build-info.json，构建日志在同目录 build.log 和 android-build.log。
 
 开发原生界面：pnpm dev；浏览器布局预览：pnpm web:dev，地址 http://localhost:1420/?platform=windows 或 ?platform=android。浏览器预览不提供真实连接或音频。
 
@@ -71,6 +80,6 @@ $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
 
 cargo run -p sonahop -- devices --json 仅列 Windows 播放设备。原有 capture --output artifacts/playback-new.wav --seconds 5 是用户手动的系统端点采集诊断，须在采集期间播放声音；不会覆盖已有文件，WAV 保持 float32。
 
-当前计划：docs/superpowers/plans/2026-10-12-ui-refinement.md。角色分离设计：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md。
+当前计划：docs/superpowers/plans/2026-10-12-address-polish.md。角色分离设计：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md。
 
 Windows 自带虚拟播放/录音驱动、同机同时作为共享和收听端、音源混音、专用 USB 音频和麦克风回授抑制仍为后续范围。虚拟设备方案：docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。

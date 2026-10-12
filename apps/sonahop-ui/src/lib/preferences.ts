@@ -1,3 +1,5 @@
+import { normalizeStoredAddress } from "./connection-address.ts";
+
 export type AudioMode = "listen" | "microphone";
 export type ConnectionRole = "host" | "client";
 export type SendSource = "system" | "microphone";
@@ -50,7 +52,7 @@ export function readPreferences(raw: string | null): Preferences {
           : 70,
       sourceId: text(data.sourceId, "", 512),
       computerName: text(data.computerName, "我的服务器", 64) || "我的服务器",
-      computerAddress: text(data.computerAddress, "", 255),
+      computerAddress: normalizeStoredAddress(text(data.computerAddress, "", 255)),
       connectionRole:
         data.connectionRole === "host" || data.connectionRole === "client"
           ? data.connectionRole

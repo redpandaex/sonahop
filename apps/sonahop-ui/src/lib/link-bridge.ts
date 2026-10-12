@@ -58,13 +58,4 @@ export async function ensureNetworkAccess(platform: Platform): Promise<string> {
   return permission.deviceName;
 }
 
-export function parseLinkAddress(value: string): { address: string; port: number } {
-  const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(value.trim());
-  if (!match) throw new Error("请输入 IPv4 地址，可附端口，例如 192.168.1.10:32993。");
-  const octets = match[1].split(".").map(Number);
-  const port = match[2] ? Number(match[2]) : 32993;
-  if (octets.some((part) => part > 255) || port < 1 || port > 65535) {
-    throw new Error("IPv4 地址或端口无效，端口范围为 1–65535。");
-  }
-  return { address: octets.join("."), port };
-}
+export { parseLinkAddress } from "./connection-address.ts";

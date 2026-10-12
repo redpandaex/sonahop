@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DeviceMobileIcon, MonitorIcon } from "@phosphor-icons/react";
 import { ErrorMessage, StatusBadge } from "./controls";
-import { parseLinkAddress } from "../lib/link-bridge";
+import { parseLinkAddress, normalizeStoredAddress } from "../lib/connection-address.ts";
 import type { Workbench } from "../lib/use-workbench";
 import { audioStatusLabel } from "./audio-controls";
 
@@ -49,17 +49,17 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       </div>
       {snapshot?.localAddresses?.length ? (
         <div className="lan-addresses">
-          <h3 className="lan-group-heading">连接地址</h3>
+          <h3 className="lan-group-heading">
+            {w.info.platform === "windows" ? "Wi-Fi 地址" : "连接地址"}
+          </h3>
           {snapshot.localAddresses.map((ip) => (
             <div className="lan-address-row" key={ip}>
-              <code className="mono">
-                {ip}:{snapshot.port}
-              </code>
+              <code className="mono">{ip}</code>
               <Button
                 className="secondary-button"
                 aria-label={"复制地址 " + ip}
                 onClick={() => {
-                  const address = ip + ":" + snapshot.port;
+                  const address = ip;
                   if (!navigator.clipboard?.writeText) {
                     setCopyMessage("请长按或选中地址复制。");
                     return;
@@ -81,7 +81,11 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
           )}
         </div>
       ) : (
-        running && <p className="field-help">未检测到可用地址</p>
+        running && (
+          <p className="field-help">
+            {w.info.platform === "windows" ? "未检测到 Wi-Fi 地址" : "未检测到可用地址"}
+          </p>
+        )
       )}
       {snapshot?.role === "host" && snapshot.running && snapshot.pairingCode && (
         <div className="lan-confirmation">
@@ -266,9 +270,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
                     <MonitorIcon size={23} weight="bold" />
                     <div>
                       <h3>{host.name}</h3>
-                      <p className="mono">
-                        {host.address}:{host.port}
-                      </p>
+                      <p className="mono">{host.address}</p>
                     </div>
                   </div>
                   <Button
@@ -298,26 +300,31 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
             }}
           >
             <label className="field-label" htmlFor="lan-address">
-              手动连接
+              IP 地址
             </label>
             <Input
               id="lan-address"
+              aria-invalid={Boolean(addressError)}
               value={address}
-              maxLength={21}
+              maxLength={15}
               onChange={(event) => {
                 setAddress(event.currentTarget.value);
                 setAddressError("");
               }}
-              placeholder="192.168.1.10:32993"
+              placeholder="192.168.1.10"
+              onPaste={(event) => {
+                const pasted = normalizeStoredAddress(event.clipboardData.getData("text"));
+                if (pasted) {
+                  event.preventDefault();
+                  setAddress(pasted);
+                  setAddressError("");
+                }
+              }}
               autoCapitalize="off"
               autoComplete="off"
-              inputMode="url"
+              inputMode="decimal"
               spellCheck={false}
-              aria-describedby="lan-address-help"
             />
-            <p id="lan-address-help" className="field-help">
-              端口默认 32993。
-            </p>
             {addressError && <ErrorMessage message={addressError} />}
             <div className="lan-actions">
               {w.prefs.computerAddress && w.prefs.computerAddress !== address && (

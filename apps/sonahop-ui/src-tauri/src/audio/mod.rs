@@ -1,13 +1,21 @@
+mod backend;
 mod control;
 mod workers;
 use serde::{Deserialize, Serialize};
 use sonahop_audio::{StreamKind, new_stream_id, stream_id_text};
 use sonahop_link::{LinkRole, LinkService};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::AppHandle;
 use tauri::async_runtime::JoinHandle;
 use workers::{Worker, WorkerMode};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AudioSource {
+    System,
+    Microphone,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +45,7 @@ impl From<StreamKind> for AudioLane {
 pub struct MicRequest {
     pub peer_id: String,
     pub name: String,
+    pub request_id: String,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +62,9 @@ pub struct LaneSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct AudioSnapshot {
     pub role: LinkRole,
+    pub send_source: AudioSource,
+    pub remote_source: Option<AudioSource>,
+    pub remote_microphone_supported: Option<bool>,
     pub mode: String,
     pub active: bool,
     pub waiting: bool,
@@ -74,37 +86,62 @@ pub struct AudioSnapshot {
     rename_all_fields = "camelCase"
 )]
 enum AudioControl {
-    Subscribe,
-    Unsubscribe,
-    MicRequest,
+    Subscribe {
+        #[serde(default)]
+        request_id: Option<String>,
+    },
+    Unsubscribe {
+        #[serde(default)]
+        request_id: Option<String>,
+    },
+    MicRequest {
+        #[serde(default)]
+        request_id: Option<String>,
+    },
+    Capabilities {
+        remote_microphone: bool,
+        platform: String,
+    },
     ListenOffer {
         stream_id: String,
+        #[serde(default)]
+        source: Option<AudioSource>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     MicGrant {
         stream_id: String,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     Stop {
         reason: String,
         #[serde(default)]
         lane: Option<AudioLane>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     Error {
         message: String,
         #[serde(default)]
         lane: Option<AudioLane>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
 }
 impl AudioControl {
-    fn stop(kind: StreamKind, reason: impl Into<String>) -> Self {
+    fn stop(kind: StreamKind, reason: impl Into<String>, request_id: Option<String>) -> Self {
         Self::Stop {
             reason: reason.into(),
             lane: Some(kind.into()),
+            request_id,
         }
     }
-    fn error(kind: StreamKind, message: impl Into<String>) -> Self {
+    fn error(kind: StreamKind, message: impl Into<String>, request_id: Option<String>) -> Self {
         Self::Error {
             message: message.into(),
             lane: Some(kind.into()),
+            request_id,
         }
     }
 }
@@ -118,6 +155,7 @@ struct LaneState {
     peak_level: f32,
     phase: Phase,
     stream_id: Option<[u8; 16]>,
+    request_id: Option<String>,
     epoch: u64,
     worker: Option<Worker>,
     peer_id: Option<String>,
@@ -133,6 +171,7 @@ impl LaneState {
             peak_level: 0.0,
             phase: Phase::Idle,
             stream_id: None,
+            request_id: None,
             epoch: 0,
             worker: None,
             peer_id: None,
@@ -157,9 +196,13 @@ impl LaneState {
 }
 struct State {
     role: LinkRole,
+    send_source: AudioSource,
+    input_device_id: Option<String>,
+    remote_source: Option<AudioSource>,
+    remote_microphone_supported: Option<bool>,
     listen: LaneState,
     microphone: LaneState,
-    listeners: HashSet<String>,
+    listeners: HashMap<String, String>,
     requests: Vec<MicRequest>,
     gain: u8,
 }
@@ -180,9 +223,16 @@ impl State {
     }
     fn peers_for(&self, kind: StreamKind) -> Vec<String> {
         if kind == StreamKind::Listen {
-            self.listeners.iter().cloned().collect()
+            self.listeners.keys().cloned().collect()
         } else {
             self.microphone.peer_id.iter().cloned().collect()
+        }
+    }
+    fn request_for(&self, kind: StreamKind, peer: &str) -> Option<String> {
+        if kind == StreamKind::Listen {
+            self.listeners.get(peer).cloned()
+        } else {
+            self.microphone.request_id.clone()
         }
     }
     fn snapshot(&self) -> AudioSnapshot {
@@ -192,6 +242,9 @@ impl State {
         let mic = microphone.active || microphone.waiting;
         AudioSnapshot {
             role: self.role,
+            send_source: self.send_source,
+            remote_source: self.remote_source,
+            remote_microphone_supported: self.remote_microphone_supported,
             mode: match (listening, mic) {
                 (true, true) => "duplex",
                 (true, false) => "listen",
@@ -236,7 +289,14 @@ impl Shared {
             if state.lane(kind).epoch != epoch {
                 return;
             }
-            let peers = state.peers_for(kind);
+            let peers = state
+                .peers_for(kind)
+                .into_iter()
+                .map(|peer| {
+                    let request = state.request_for(kind, &peer);
+                    (peer, request)
+                })
+                .collect::<Vec<_>>();
             let lane = state.lane_mut(kind);
             if let Some(worker) = &lane.worker {
                 worker.cancel();
@@ -253,8 +313,8 @@ impl Shared {
             peers
         };
         self.link.log_event("audio-failed", serde_json::json!({"lane":if kind==StreamKind::Listen{"listen"}else{"microphone"},"epoch":epoch,"reason":error}));
-        for peer in peers {
-            let _ = self.send(&peer, AudioControl::stop(kind, error.clone()));
+        for (peer, request) in peers {
+            let _ = self.send(&peer, AudioControl::stop(kind, error.clone(), request));
         }
     }
 }
@@ -271,9 +331,13 @@ impl AudioService {
                 link,
                 state: Mutex::new(State {
                     role,
+                    send_source: AudioSource::System,
+                    input_device_id: None,
+                    remote_source: None,
+                    remote_microphone_supported: None,
                     listen: LaneState::new(),
                     microphone: LaneState::new(),
-                    listeners: HashSet::new(),
+                    listeners: HashMap::new(),
                     requests: Vec::new(),
                     gain: 100,
                 }),
@@ -319,7 +383,7 @@ impl AudioService {
     }
     fn role(&self, role: LinkRole) -> Result<(), String> {
         if self.shared.lock().role != role {
-            Err("此操作不适用于当前平台角色".into())
+            Err("此操作不适用于当前连接角色".into())
         } else {
             Ok(())
         }
@@ -331,28 +395,54 @@ impl AudioService {
             .peers
             .first()
             .map(|p| p.id.clone())
-            .ok_or("请先连接电脑".into())
+            .ok_or("请先连接服务器".into())
     }
-    pub async fn start_listening(&self) -> Result<AudioSnapshot, String> {
+    pub async fn start_listening(
+        &self,
+        source: Option<AudioSource>,
+        input: Option<String>,
+        output: Option<String>,
+    ) -> Result<AudioSnapshot, String> {
         let _lock = self.lifecycle.lock().await;
         if !self.shared.link.snapshot().running {
             return Err("请先开启局域网连接".into());
         }
+        let role = self.shared.lock().role;
+        let selected = source.unwrap_or(AudioSource::System);
         if self.shared.lock().listen.phase == Phase::Active {
+            if role == LinkRole::Host && self.shared.lock().send_source != selected {
+                return Err("请先停止共享，再切换音源".into());
+            }
             return Ok(self.snapshot());
         }
-        if self.shared.lock().role == LinkRole::Host {
+        if role == LinkRole::Host {
+            {
+                let mut state = self.shared.lock();
+                state.send_source = selected;
+                state.input_device_id = input.filter(|v| !v.trim().is_empty());
+            }
+            let device = self.shared.lock().input_device_id.clone();
             let id = new_stream_id();
-            self.launch(WorkerMode::WindowsCapture, StreamKind::Listen, id)
-                .await?;
+            self.launch(
+                WorkerMode::Capture {
+                    source: selected,
+                    device,
+                },
+                StreamKind::Listen,
+                id,
+            )
+            .await?;
             let peers = self.shared.lock().peers_for(StreamKind::Listen);
             for peer in peers {
+                let request_id = self.shared.lock().listeners.get(&peer).cloned();
                 if self
                     .shared
                     .send(
                         &peer,
                         AudioControl::ListenOffer {
                             stream_id: stream_id_text(id),
+                            source: Some(selected),
+                            request_id,
                         },
                     )
                     .is_err()
@@ -369,9 +459,20 @@ impl AudioService {
             {
                 let mut state = self.shared.lock();
                 state.listen.phase = Phase::Waiting;
-                state.listeners.insert(peer.clone());
+                state.listen.request_id = Some(stream_id_text(new_stream_id()));
+                state.listen.output_device_id = output.filter(|v| !v.trim().is_empty());
+                let request = state
+                    .listen
+                    .request_id
+                    .clone()
+                    .expect("new subscription has an ID");
+                state.listeners.insert(peer.clone(), request);
             }
-            if let Err(error) = self.shared.send(&peer, AudioControl::Subscribe) {
+            let request_id = self.shared.lock().listen.request_id.clone();
+            if let Err(error) = self
+                .shared
+                .send(&peer, AudioControl::Subscribe { request_id })
+            {
                 self.stop_lane_inner(StreamKind::Listen, "连接不可用", false)
                     .await;
                 return Err(error);
@@ -379,9 +480,12 @@ impl AudioService {
         }
         Ok(self.snapshot())
     }
-    pub async fn request_microphone(&self) -> Result<AudioSnapshot, String> {
+    pub async fn request_microphone(&self, input: Option<String>) -> Result<AudioSnapshot, String> {
         let _lock = self.lifecycle.lock().await;
         self.role(LinkRole::Client)?;
+        if self.shared.lock().remote_microphone_supported == Some(false) {
+            return Err("该服务器不支持接收远端麦克风".into());
+        }
         let peer = self.host_peer()?;
         self.stop_lane_inner(StreamKind::Listen, "本设备切换为麦克风", true)
             .await;
@@ -390,9 +494,15 @@ impl AudioService {
         {
             let mut state = self.shared.lock();
             state.microphone.phase = Phase::Waiting;
+            state.microphone.request_id = Some(stream_id_text(new_stream_id()));
+            state.input_device_id = input.filter(|v| !v.trim().is_empty());
             state.microphone.peer_id = Some(peer.clone());
         }
-        if let Err(error) = self.shared.send(&peer, AudioControl::MicRequest) {
+        let request_id = self.shared.lock().microphone.request_id.clone();
+        if let Err(error) = self
+            .shared
+            .send(&peer, AudioControl::MicRequest { request_id })
+        {
             self.stop_lane_inner(StreamKind::Microphone, "连接不可用", false)
                 .await;
             return Err(error);
@@ -402,17 +512,21 @@ impl AudioService {
     pub async fn answer_microphone(
         &self,
         peer_id: String,
+        request_id: String,
         approve: bool,
         output: Option<String>,
     ) -> Result<AudioSnapshot, String> {
         let _lock = self.lifecycle.lock().await;
         self.role(LinkRole::Host)?;
+        if !cfg!(target_os = "windows") {
+            return Err("该服务器没有远端麦克风接收后端".into());
+        }
         if !self
             .shared
             .lock()
             .requests
             .iter()
-            .any(|r| r.peer_id == peer_id)
+            .any(|r| r.peer_id == peer_id && r.request_id == request_id)
         {
             return Err("麦克风请求已结束".into());
         }
@@ -420,7 +534,11 @@ impl AudioService {
             self.shared.lock().requests.retain(|r| r.peer_id != peer_id);
             self.shared.send(
                 &peer_id,
-                AudioControl::error(StreamKind::Microphone, "电脑拒绝了麦克风请求"),
+                AudioControl::error(
+                    StreamKind::Microphone,
+                    "服务器拒绝了麦克风请求",
+                    Some(request_id.clone()),
+                ),
             )?;
             return Ok(self.snapshot());
         }
@@ -443,7 +561,7 @@ impl AudioService {
         // A single Android remains one direction; other subscribers keep their listening stream.
         let no_listeners = {
             let mut state = self.shared.lock();
-            let removed = state.listeners.remove(&peer_id);
+            let removed = state.listeners.remove(&peer_id).is_some();
             removed && state.listeners.is_empty()
         };
         if no_listeners {
@@ -453,13 +571,16 @@ impl AudioService {
         {
             let mut state = self.shared.lock();
             state.microphone.peer_id = Some(peer_id.clone());
+            state.microphone.request_id = Some(request_id.clone());
             state.microphone.output_device_id = Some(device.clone());
             state.microphone.phase = Phase::Waiting;
         }
         let id = new_stream_id();
         if let Err(error) = self
             .launch(
-                WorkerMode::WindowsPlayback { device },
+                WorkerMode::Playback {
+                    device: Some(device),
+                },
                 StreamKind::Microphone,
                 id,
             )
@@ -467,7 +588,11 @@ impl AudioService {
         {
             let _ = self.shared.send(
                 &peer_id,
-                AudioControl::error(StreamKind::Microphone, error.clone()),
+                AudioControl::error(
+                    StreamKind::Microphone,
+                    error.clone(),
+                    Some(request_id.clone()),
+                ),
             );
             return Err(error);
         }
@@ -475,6 +600,7 @@ impl AudioService {
             &peer_id,
             AudioControl::MicGrant {
                 stream_id: stream_id_text(id),
+                request_id: Some(request_id.clone()),
             },
         ) {
             self.stop_lane_inner(StreamKind::Microphone, "麦克风连接失败", false)
@@ -547,7 +673,38 @@ impl AudioService {
             .await;
         self.stop_lane_inner(StreamKind::Microphone, "麦克风已停止", true)
             .await;
+        #[cfg(target_os = "android")]
+        {
+            use tauri_plugin_sonahop_lan::SonahopLanExt;
+            let app = self.shared.app.clone();
+            let result =
+                tauri::async_runtime::spawn_blocking(move || app.sonahop_lan().stop_audio()).await;
+            match result {
+                Ok(Ok(())) => {}
+                other => {
+                    self.shared.lock().listen.error =
+                        Some(format!("Android 音频停止失败：{other:?}"))
+                }
+            }
+        }
         self.snapshot()
+    }
+    pub async fn set_role(&self, role: LinkRole) -> Result<(), String> {
+        let _lock = self.lifecycle.lock().await;
+        let mut state = self.shared.lock();
+        if state.listen.worker.is_some() || state.microphone.worker.is_some() {
+            return Err("切换角色前请停止音频".into());
+        }
+        state.role = role;
+        state.listen = LaneState::new();
+        state.microphone = LaneState::new();
+        state.listeners.clear();
+        state.requests.clear();
+        state.remote_source = None;
+        state.remote_microphone_supported = None;
+        state.input_device_id = None;
+        state.send_source = AudioSource::System;
+        Ok(())
     }
     pub async fn stop_lane(&self, lane: AudioLane) -> AudioSnapshot {
         let _lock = self.lifecycle.lock().await;
@@ -576,7 +733,7 @@ impl AudioService {
             if except != Some(request.peer_id.as_str()) {
                 let _ = self.shared.send(
                     &request.peer_id,
-                    AudioControl::error(StreamKind::Microphone, reason),
+                    AudioControl::error(StreamKind::Microphone, reason, Some(request.request_id)),
                 );
             }
         }
@@ -593,7 +750,14 @@ impl AudioService {
     async fn stop_lane_inner(&self, kind: StreamKind, reason: &str, notify: bool) {
         let (worker, peers) = {
             let mut state = self.shared.lock();
-            let peers = state.peers_for(kind);
+            let peers = state
+                .peers_for(kind)
+                .into_iter()
+                .map(|peer| {
+                    let request = state.request_for(kind, &peer);
+                    (peer, request)
+                })
+                .collect::<Vec<_>>();
             let lane = state.lane_mut(kind);
             lane.epoch = lane.epoch.wrapping_add(1);
             let worker = lane.worker.take();
@@ -603,17 +767,21 @@ impl AudioService {
             lane.peak_level = 0.0;
             lane.phase = Phase::Idle;
             lane.stream_id = None;
+            lane.request_id = None;
             lane.peer_id = None;
             lane.output_device_id = None;
             lane.error = None;
             if kind == StreamKind::Listen {
                 state.listeners.clear();
+                state.remote_source = None;
             }
             (worker, peers)
         };
         if notify {
-            for peer in peers {
-                let _ = self.shared.send(&peer, AudioControl::stop(kind, reason));
+            for (peer, request) in peers {
+                let _ = self
+                    .shared
+                    .send(&peer, AudioControl::stop(kind, reason, request));
             }
         }
         if let Some(worker) = worker {

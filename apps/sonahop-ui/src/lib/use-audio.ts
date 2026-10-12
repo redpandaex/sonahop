@@ -11,7 +11,7 @@ import {
   stopAudio,
   stopAudioLane,
 } from "./audio-bridge";
-import type { AudioSnapshot } from "./audio-bridge";
+import type { AudioSnapshot, ListenOptions } from "./audio-bridge";
 
 export function useAudio(platform: Platform, appReady: boolean) {
   const available =
@@ -113,26 +113,38 @@ export function useAudio(platform: Platform, appReady: boolean) {
     [available, acceptSnapshot],
   );
 
+  const refresh = useCallback(() => perform(getAudioSnapshot), [perform]);
   const startListen = useCallback(
-    () =>
+    (options: ListenOptions = {}) =>
       perform(async () => {
-        await prepareAudio(platform, "listen");
-        return startListening();
+        if (!snapshot) throw new Error("音频状态尚未就绪，请稍后重试。");
+        const source = options.source ?? "system";
+        await prepareAudio(
+          platform,
+          snapshot.role === "host"
+            ? source === "microphone"
+              ? "microphone"
+              : "playback"
+            : "listen",
+        );
+        if (snapshot.role === "host" && source === "microphone" && options.gain !== undefined)
+          await setAudioGain(options.gain);
+        return startListening(options);
       }),
-    [perform, platform],
+    [perform, platform, snapshot?.role],
   );
   const requestMic = useCallback(
-    (gain: number) =>
+    (gain: number, inputDeviceId?: string) =>
       perform(async () => {
         await prepareAudio(platform, "microphone");
         await setAudioGain(gain);
-        return requestMicrophone();
+        return requestMicrophone(inputDeviceId);
       }),
     [perform, platform],
   );
   const answerMic = useCallback(
-    (peerId: string, approve: boolean, outputDeviceId: string | null) =>
-      perform(() => answerMicrophoneRequest(peerId, approve, outputDeviceId)),
+    (peerId: string, requestId: string, approve: boolean, outputDeviceId: string | null) =>
+      perform(() => answerMicrophoneRequest(peerId, requestId, approve, outputDeviceId)),
     [perform],
   );
   const stop = useCallback(() => perform(stopAudio), [perform]);
@@ -146,6 +158,7 @@ export function useAudio(platform: Platform, appReady: boolean) {
     available,
     busy,
     error: operationError || pollError || snapshot?.lastError || "",
+    refresh,
     startListen,
     requestMic,
     answerMic,

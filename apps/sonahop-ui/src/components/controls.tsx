@@ -33,7 +33,7 @@ export function PreviewNotice({ browser }: { browser: boolean }) {
     return (
       <p className="setup-note" role="note">
         <InfoIcon size={15} aria-hidden />
-        连接设备后，再开启音频。使用手机麦克风需电脑批准。
+        在服务器开启连接，在播放器配对后主动开始音频。
       </p>
     );
   return (
@@ -138,7 +138,7 @@ export function VolumeControl({
         <SpeakerHighIcon size={23} weight="bold" aria-hidden />
         <div>
           <h3>使用设备音量键调节</h3>
-          <p>播放音量由手机或平板的系统媒体音量控制，SonaHop 不再额外衰减声音。</p>
+          <p>播放音量由本设备的系统媒体音量控制，SonaHop 使用固定单位播放增益。</p>
         </div>
       </section>
     );
@@ -186,7 +186,9 @@ export function VolumeControl({
         {workbench.info.browserPreview
           ? "浏览器只保存音量偏好。"
           : microphone
-            ? "调整本设备麦克风增益；录音只在申请获得批准后启动。"
+            ? workbench.role === "host"
+              ? "调整本设备麦克风增益；点击开始共享后启动。"
+              : "调整本设备麦克风增益；申请获得服务器批准后启动。"
             : "调整这台设备的接收音量，不改变电脑扬声器或另一台设备的音量。"}
         {workbench.audio.snapshot && !workbench.info.browserPreview && (
           <> 当前生效：{workbench.audio.snapshot.gain}%。</>

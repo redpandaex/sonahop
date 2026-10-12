@@ -1,4 +1,4 @@
-use crate::PermissionResponse;
+use crate::{AudioCapabilities, PermissionResponse};
 use serde::de::DeserializeOwned;
 use tauri::{
     AppHandle, Runtime,
@@ -35,6 +35,14 @@ impl<R: Runtime> SonahopLan<R> {
     }
     pub fn start_capture(&self) -> crate::Result<()> {
         self.start_native("startCapture")
+    }
+    pub fn start_system_capture(&self) -> crate::Result<()> {
+        self.start_native("startSystemCapture")
+    }
+    pub fn audio_capabilities(&self) -> crate::Result<AudioCapabilities> {
+        self.0
+            .run_mobile_plugin("audioCapabilities", serde_json::json!({}))
+            .map_err(Into::into)
     }
     fn start_native(&self, command: &str) -> crate::Result<()> {
         let response: serde_json::Value =

@@ -31,6 +31,7 @@ struct AudioState {
     stopped: bool,
     generation: u64,
     java_session: i64,
+    capture_channels: usize,
 }
 
 fn audio() -> &'static (Mutex<AudioState>, Condvar) {
@@ -42,13 +43,14 @@ fn audio() -> &'static (Mutex<AudioState>, Condvar) {
                 stopped: true,
                 generation: 0,
                 java_session: 0,
+                capture_channels: 0,
             }),
             Condvar::new(),
         )
     })
 }
 
-/// Receive one 20 ms, 48 kHz mono PCM16 microphone packet with bounded waiting.
+/// Receive one 20 ms, 48 kHz mono microphone or stereo playback PCM16 packet.
 /// Hardware/service failures wake the waiter immediately.
 pub fn captured_packet(timeout: Duration) -> Result<Option<Vec<i16>>, String> {
     let (mutex, wake) = audio();
@@ -198,35 +200,73 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeR
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeStarted(
-    _env: JNIEnv<'_>,
+    mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     session_id: jni::sys::jlong,
+    capture_channels: jni::sys::jint,
 ) {
+    if session_id <= 0 || !(0..=2).contains(&capture_channels) {
+        let _ = env.throw_new(
+            "java/lang/IllegalArgumentException",
+            "Invalid audio session or capture channels",
+        );
+        return;
+    }
     let (mutex, wake) = audio();
     if let Ok(mut state) = mutex.lock() {
         state.generation = state.generation.wrapping_add(1);
         state.packets.clear();
         state.error = None;
         state.java_session = session_id;
+        state.capture_channels = capture_channels as usize;
         state.stopped = false;
         wake.notify_all();
     }
 }
-
+fn failure_for_session(session_id: i64, message: String) {
+    let (mutex, wake) = audio();
+    if let Ok(mut state) = mutex.lock() {
+        if state.java_session != session_id {
+            return;
+        }
+        if state.error.is_none() {
+            state.error = Some(message.chars().take(512).collect());
+        }
+        state.stopped = true;
+        state.packets.clear();
+        wake.notify_all();
+    }
+}
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeCaptured(
     env: JNIEnv<'_>,
     _class: JClass<'_>,
     pcm: JByteArray<'_>,
+    session_id: jni::sys::jlong,
 ) {
-    if env.get_array_length(&pcm).ok() != Some((CAPTURE_SAMPLES * 2) as i32) {
-        failure("Android microphone delivered an invalid PCM packet".into());
+    let expected = {
+        let Ok(state) = audio().0.lock() else {
+            return;
+        };
+        if state.stopped || state.java_session != session_id {
+            return;
+        }
+        CAPTURE_SAMPLES * state.capture_channels * 2
+    };
+    if expected == 0 || env.get_array_length(&pcm).ok() != Some(expected as i32) {
+        failure_for_session(
+            session_id,
+            "Android capture delivered an invalid PCM packet".into(),
+        );
         return;
     }
     let bytes = match env.convert_byte_array(&pcm) {
         Ok(bytes) => bytes,
         Err(error) => {
-            failure(format!("Cannot copy Android microphone packet: {error}"));
+            failure_for_session(
+                session_id,
+                format!("Cannot copy Android capture packet: {error}"),
+            );
             return;
         }
     };
@@ -236,7 +276,7 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeC
         .collect();
     let (mutex, wake) = audio();
     if let Ok(mut state) = mutex.lock() {
-        if state.stopped {
+        if state.stopped || state.java_session != session_id {
             return;
         }
         if state.packets.len() == CAPTURE_QUEUE_PACKETS {
@@ -246,29 +286,33 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeC
         wake.notify_one();
     }
 }
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeAudioFailure(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     message: JString<'_>,
+    session_id: jni::sys::jlong,
 ) {
     let message = env
         .get_string(&message)
-        .map(|message| message.into())
+        .map(|value| value.into())
         .unwrap_or_else(|_| "Android native audio failed".into());
-    failure(message);
+    failure_for_session(session_id, message);
 }
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeStopped(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
+    session_id: jni::sys::jlong,
 ) {
     let (mutex, wake) = audio();
     if let Ok(mut state) = mutex.lock() {
+        if state.java_session != session_id {
+            return;
+        }
         state.generation = state.generation.wrapping_add(1);
         state.stopped = true;
+        state.capture_channels = 0;
         state.packets.clear();
         wake.notify_all();
     }

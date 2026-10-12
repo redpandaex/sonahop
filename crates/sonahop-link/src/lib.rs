@@ -4,7 +4,7 @@ mod diagnostics;
 mod network;
 mod protocol;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -16,7 +16,7 @@ pub const DISCOVERY_PORT: u16 = 32992;
 pub const CONTROL_PORT: u16 = 32993;
 pub const MAX_MEDIA_BYTES: usize = 1400;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LinkRole {
     Host,
@@ -347,6 +347,22 @@ impl LinkService {
             })
         });
         snapshot
+    }
+    pub async fn set_role(&self, role: LinkRole) -> Result<LinkSnapshot, String> {
+        let _lifecycle = self.inner.lifecycle.lock().await;
+        {
+            let mut state = self.inner.lock();
+            if state.snapshot.running || !state.controls.is_empty() {
+                return Err("切换角色前请停止当前连接".into());
+            }
+            state.snapshot.role = role;
+            state.snapshot.client_state = ClientState::Idle;
+            state.snapshot.last_error = None;
+            state.snapshot.discovered.clear();
+            state.discovered.clear();
+        }
+        self.log_event("role-changed", serde_json::json!({"role":role}));
+        Ok(self.snapshot())
     }
     pub async fn start(&self, name: String) -> Result<LinkSnapshot, String> {
         let _lifecycle = self.inner.lifecycle.lock().await;

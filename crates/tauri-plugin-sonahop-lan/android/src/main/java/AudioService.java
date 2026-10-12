@@ -1,6 +1,7 @@
 package io.github.redpandaex.sonahop.lan;
 
 import android.Manifest;
+import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -14,10 +15,13 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.AudioRecordingConfiguration;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -62,15 +66,18 @@ public final class AudioService extends Service {
         session.service = this;
         session.startId = startId;
         try {
-            if (session.microphone && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            if (session.captureChannels != 0 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                     != PackageManager.PERMISSION_GRANTED) {
-                throw new SecurityException("Microphone permission is not granted");
+                throw new SecurityException("Audio capture RECORD_AUDIO permission is not granted");
             }
             Notification notification = notification(session);
             if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIFICATION, notification, session.microphone
-                        ? (Build.VERSION.SDK_INT >= 30 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0)
-                        : ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+                int type = session.systemCapture ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        : session.microphone
+                            ? (Build.VERSION.SDK_INT >= 30 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0)
+                            : ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
+                // MediaProjection is obtained only after this foreground service is established.
+                startForeground(NOTIFICATION, notification, type);
             } else startForeground(NOTIFICATION, notification);
             session.worker = new Thread(session::initialize, "sonahop-android-audio");
             session.worker.start();
@@ -85,7 +92,7 @@ public final class AudioService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL, "SonaHop audio",
                     NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Listening and microphone sharing controls");
+            channel.setDescription("Listening, microphone and playback capture controls");
             channel.setSound(null, null);
             manager.createNotificationChannel(channel);
         }
@@ -98,7 +105,8 @@ public final class AudioService extends Service {
         builder.setSmallIcon(session.microphone ? android.R.drawable.ic_btn_speak_now
                 : android.R.drawable.ic_media_play)
                 .setContentTitle("SonaHop")
-                .setContentText(session.microphone ? "正在共享麦克风 · 点停止结束" : "正在接收电脑音频 · 点停止结束")
+                .setContentText(session.systemCapture ? "正在共享本机播放声音 · 点停止结束"
+                        : session.microphone ? "正在共享麦克风 · 点停止结束" : "正在接收音频 · 点停止结束")
                 .setCategory(Notification.CATEGORY_SERVICE).setOngoing(true).setOnlyAlertOnce(true)
                 .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,
                         "停止", stopAction).build());
@@ -132,6 +140,8 @@ public final class AudioService extends Service {
         final long id;
         final Context context;
         final boolean microphone;
+        final boolean systemCapture;
+        final int captureChannels;
         final Object ioLock = new Object();
         final AtomicBoolean disposing = new AtomicBoolean();
         final ArrayList<AudioBridge.StartResult> stopCallbacks = new ArrayList<>();
@@ -143,16 +153,23 @@ public final class AudioService extends Service {
         AudioBridge.StartResult callback;
         AudioTrack track;
         AudioRecord recorder;
+        Intent projectionData;
+        MediaProjection projection;
+        MediaProjection.Callback projectionCallback;
         AudioManager manager;
         AudioFocusRequest focus;
         AudioManager.OnAudioFocusChangeListener focusListener;
         boolean focusHeld;
         PowerManager.WakeLock wakeLock;
 
-        Session(long id, Context context, boolean microphone, AudioBridge.StartResult callback) {
+        Session(long id, Context context, boolean microphone, boolean systemCapture,
+                Intent projectionData, AudioBridge.StartResult callback) {
             this.id = id;
             this.context = context;
             this.microphone = microphone;
+            this.systemCapture = systemCapture;
+            this.captureChannels = systemCapture ? 2 : microphone ? 1 : 0;
+            this.projectionData = projectionData;
             this.callback = callback;
         }
 
@@ -161,28 +178,32 @@ public final class AudioService extends Service {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
                 synchronized (ioLock) {
                     if (!running) return;
-                    manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
                     AudioAttributes attributes = new AudioAttributes.Builder()
                             .setUsage(microphone ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_MEDIA)
                             .setContentType(microphone ? AudioAttributes.CONTENT_TYPE_SPEECH : AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build();
-                    focusListener = change -> {
-                        if (change < 0) AudioBridge.fail(this, "Android audio focus was lost");
-                    };
-                    int gain = microphone ? AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE : AudioManager.AUDIOFOCUS_GAIN;
-                    int result;
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        focus = new AudioFocusRequest.Builder(gain).setAudioAttributes(attributes)
-                                .setAcceptsDelayedFocusGain(false).setWillPauseWhenDucked(true)
-                                .setOnAudioFocusChangeListener(focusListener, MAIN).build();
-                        result = manager.requestAudioFocus(focus);
-                    } else result = manager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, gain);
-                    if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                        throw new IllegalStateException("Android did not grant audio focus");
+                    // Internal playback capture must not steal focus and pause the captured music app.
+                    if (!systemCapture) {
+                        manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+                        focusListener = change -> {
+                            if (change < 0) AudioBridge.fail(this, "Android audio focus was lost");
+                        };
+                        int gain = microphone ? AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE : AudioManager.AUDIOFOCUS_GAIN;
+                        int result;
+                        if (Build.VERSION.SDK_INT >= 26) {
+                            focus = new AudioFocusRequest.Builder(gain).setAudioAttributes(attributes)
+                                    .setAcceptsDelayedFocusGain(false).setWillPauseWhenDucked(true)
+                                    .setOnAudioFocusChangeListener(focusListener, MAIN).build();
+                            result = manager.requestAudioFocus(focus);
+                        } else result = manager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, gain);
+                        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                            throw new IllegalStateException("Android did not grant audio focus");
+                        }
+                        focusHeld = true;
                     }
-                    focusHeld = true;
                     // No global AudioManager mode, speaker route or stream volume is changed.
-                    if (microphone) initializeCapture();
+                    if (systemCapture) initializeSystemCapture();
+                    else if (microphone) initializeCapture();
                     else initializePlayback(attributes);
                     if (!running) return;
                     PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
@@ -191,7 +212,7 @@ public final class AudioService extends Service {
                     wakeLock.acquire();
                 }
                 AudioBridge.ready(this);
-                if (microphone) captureLoop();
+                if (captureChannels != 0) captureLoop();
             } catch (RuntimeException error) {
                 AudioBridge.fail(this, "Android native audio failed: " + error.getMessage());
             }
@@ -216,9 +237,50 @@ public final class AudioService extends Service {
             if (track.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) throw new IllegalStateException("AudioTrack did not start");
         }
 
+        private void initializeSystemCapture() {
+            if (Build.VERSION.SDK_INT < 29) throw new IllegalStateException("Playback capture requires Android 10+");
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                throw new SecurityException("Playback capture RECORD_AUDIO permission was revoked");
+            Intent data = projectionData;
+            projectionData = null; // Consume once, including failed initialization; never reuse this grant.
+            if (data == null) throw new IllegalStateException("Playback capture needs fresh user consent");
+            MediaProjectionManager projections = (MediaProjectionManager)
+                    context.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+            projection = projections.getMediaProjection(Activity.RESULT_OK, data);
+            if (projection == null) throw new IllegalStateException("Playback capture consent is no longer valid");
+            projectionCallback = new MediaProjection.Callback() {
+                @Override public void onStop() {
+                    AudioBridge.fail(Session.this,
+                            "Android playback capture authorization was revoked; start again with fresh consent");
+                }
+            };
+            projection.registerCallback(projectionCallback, MAIN);
+            AudioPlaybackCaptureConfiguration capture = new AudioPlaybackCaptureConfiguration.Builder(projection)
+                    .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                    .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                    .excludeUid(Process.myUid())
+                    .build();
+            int minimum = AudioRecord.getMinBufferSize(48000, AudioFormat.CHANNEL_IN_STEREO,
+                    AudioFormat.ENCODING_PCM_16BIT);
+            if (minimum <= 0) throw new IllegalStateException("48 kHz stereo playback capture is unavailable: " + minimum);
+            recorder = new AudioRecord.Builder()
+                    .setAudioPlaybackCaptureConfig(capture)
+                    .setAudioFormat(new AudioFormat.Builder().setSampleRate(48000)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build())
+                    .setBufferSizeInBytes(Math.max(minimum, 3 * 3840)).build();
+            if (recorder.getState() != AudioRecord.STATE_INITIALIZED || recorder.getSampleRate() != 48000
+                    || recorder.getChannelCount() != 2)
+                throw new IllegalStateException("AudioRecord did not initialize playback capture at 48 kHz stereo");
+            recorder.startRecording();
+            if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING)
+                throw new IllegalStateException("Playback capture AudioRecord did not start");
+        }
+
         private void initializeCapture() {
             if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-                throw new SecurityException("Microphone permission was revoked");
+                throw new SecurityException("Audio capture RECORD_AUDIO permission was revoked");
             int minimum = AudioRecord.getMinBufferSize(48000, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT);
             if (minimum <= 0) throw new IllegalStateException("48 kHz mono recording is unavailable: " + minimum);
@@ -235,7 +297,7 @@ public final class AudioService extends Service {
         }
 
         private void captureLoop() {
-            byte[] packet = new byte[1920]; // 20 ms, mono, signed PCM16 little-endian.
+            byte[] packet = new byte[960 * captureChannels * 2]; // 20 ms PCM16: mono microphone or stereo playback capture.
             int offset = 0;
             long permissionCheck = 0;
             while (running) {
@@ -246,8 +308,8 @@ public final class AudioService extends Service {
                     if (now >= permissionCheck) {
                         permissionCheck = now + 250;
                         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-                            throw new SecurityException("Microphone permission was revoked");
-                        if (Build.VERSION.SDK_INT >= 29) {
+                            throw new SecurityException("Audio capture RECORD_AUDIO permission was revoked");
+                        if (microphone && Build.VERSION.SDK_INT >= 29) {
                             AudioRecordingConfiguration configuration = recorder.getActiveRecordingConfiguration();
                             if (configuration != null && configuration.isClientSilenced())
                                 throw new IllegalStateException("Android silenced microphone recording");
@@ -268,6 +330,7 @@ public final class AudioService extends Service {
             if (!disposing.compareAndSet(false, true)) return;
             new Thread(() -> {
                 synchronized (ioLock) {
+                    projectionData = null;
                     if (recorder != null) {
                         try { recorder.stop(); } catch (RuntimeException ignored) { }
                         try { recorder.release(); } catch (RuntimeException ignored) { }
@@ -277,6 +340,14 @@ public final class AudioService extends Service {
                         try { track.pause(); track.flush(); track.stop(); } catch (RuntimeException ignored) { }
                         try { track.release(); } catch (RuntimeException ignored) { }
                         track = null;
+                    }
+                    if (projection != null) {
+                        if (projectionCallback != null) {
+                            try { projection.unregisterCallback(projectionCallback); } catch (RuntimeException ignored) { }
+                        }
+                        try { projection.stop(); } catch (RuntimeException ignored) { }
+                        projection = null;
+                        projectionCallback = null;
                     }
                     if (manager != null && focusHeld) {
                         try {

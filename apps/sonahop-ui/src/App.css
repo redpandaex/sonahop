@@ -1754,3 +1754,205 @@ p {
   line-height: 1.6;
   white-space: pre;
 }
+
+/* Shared connection-role workspace */
+.role-navigation {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.role-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+.role-choice:hover {
+  background: var(--soft);
+  color: var(--ink);
+}
+.role-choice.selected {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.role-choice:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.role-choice:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.role-navigation-vertical {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.role-navigation-vertical .role-choice {
+  justify-content: flex-start;
+  min-height: 52px;
+  padding: 14px 16px;
+}
+.workspace-panels {
+  display: grid;
+  grid-template-columns: var(--workspace-columns, minmax(0, 1fr) minmax(0, 1fr));
+  gap: var(--workspace-gap, 20px);
+  align-items: stretch;
+}
+.workspace-panels > *,
+.workspace-connection-column {
+  min-width: 0;
+}
+.workspace-connection-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.workspace-panels > .source-panel,
+.player-audio-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+.workspace-panels > .source-panel .field-help,
+.player-audio-panel .field-help {
+  margin: 0;
+}
+.workspace-panels > .source-panel > .primary-button,
+.workspace-panels > .source-panel > .secondary-button,
+.player-audio-panel > .primary-button,
+.player-audio-panel > .secondary-button {
+  align-self: flex-start;
+}
+.audio-device-field {
+  display: grid;
+  gap: 8px;
+}
+.role-change-note,
+.role-state-note {
+  margin: -12px 0 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.role-state-note {
+  padding: 12px 14px;
+  background: var(--soft);
+  border-radius: 8px;
+}
+.capability-note {
+  color: var(--danger);
+}
+.player-direction-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.direction-tab {
+  color: var(--text-muted);
+  background: var(--soft);
+  padding: 10px 12px;
+  min-height: 42px;
+  border-radius: 8px;
+}
+.direction-tab.selected {
+  color: var(--green);
+  background: var(--green-soft);
+}
+.saved-server-identity h3 {
+  margin: 0 0 8px;
+}
+.saved-server-identity p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.remote-microphone-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.remote-microphone-panel > .secondary-button {
+  align-self: flex-start;
+}
+.remote-microphone-panel .field-help {
+  margin: 0;
+}
+.multi-role-mobile .mobile-main {
+  padding-bottom: 28px;
+}
+.multi-role-mobile .role-navigation {
+  margin-bottom: 22px;
+}
+.multi-role-mobile .shared-workspace .page-heading h1 {
+  font-size: clamp(26px, 5vw, 34px);
+  text-wrap: balance;
+}
+.multi-role-mobile .workspace-panels {
+  --workspace-columns: minmax(0, 1fr);
+  --workspace-gap: 16px;
+}
+.multi-role-mobile .shared-workspace .panel {
+  padding: 22px;
+}
+.multi-role-mobile .source-identity {
+  margin: 0;
+}
+.multi-role-mobile .remote-microphone-panel {
+  margin-top: 16px;
+}
+.mobile-session-status {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+@media (max-width: 760px) {
+  .workspace-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shared-workspace .page-heading {
+    gap: 12px;
+  }
+  .shared-workspace .mode-symbol {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+  }
+  .role-choice {
+    padding-inline: 8px;
+    gap: 7px;
+    font-size: 13px;
+  }
+  .role-change-note {
+    margin-top: -8px;
+  }
+  .player-audio-panel > .primary-button,
+  .player-audio-panel > .secondary-button,
+  .workspace-panels > .source-panel > .primary-button,
+  .workspace-panels > .source-panel > .secondary-button {
+    width: 100%;
+  }
+}

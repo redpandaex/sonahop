@@ -75,7 +75,7 @@ export function SettingsScreen({
           <div className="setting-row">
             <div>
               <h3>登录 Windows 时启动 SonaHop</h3>
-              <p>默认关闭。启动应用后，声音共享和手机麦克风仍由你手动开启。</p>
+              <p>默认关闭。启动应用后，声音共享和麦克风仍由你手动开启。</p>
             </div>
             <Button
               type="button"
@@ -113,14 +113,18 @@ export function SettingsScreen({
         <div className="setting-row">
           <div>
             <h3>设备系统音量</h3>
-            <p>使用手机或平板的音量键控制播放，不改变电脑和其它设备的音量。</p>
+            <p>使用本设备的系统媒体音量控制播放，各播放器互不影响。</p>
           </div>
           <span className="quiet-tag">已选定</span>
         </div>
         <div className="setting-row">
           <div>
-            <h3>电脑同时收发</h3>
-            <p>Windows 可以共享声音并接收手机麦克风。每台 Android 一次运行一个方向。</p>
+            <h3>服务器与播放器</h3>
+            <p>
+              Windows 和 Android
+              均可选择连接角色；服务器选择内部声音或麦克风，播放器一次运行一个音频方向。Windows
+              服务器还可接收一台远端麦克风。
+            </p>
           </div>
           <span className="quiet-tag">默认</span>
         </div>
@@ -144,7 +148,7 @@ export function SettingsScreen({
         </div>
         <div className="about-row">
           <span>版本</span>
-          <span className="mono">{w.info.version} · 首版</span>
+          <span className="mono">{w.info.version}</span>
         </div>
         <div className="about-row">
           <span>当前平台</span>
@@ -154,8 +158,8 @@ export function SettingsScreen({
         </div>
         <p className="about-note">
           {w.info.browserPreview
-            ? "浏览器仅提供布局与偏好预览；连接、系统声音收听及手机麦克风需使用原生应用。"
-            : "支持局域网 PIN 连接、系统声音共享与手机麦克风；麦克风需要电脑批准及已安装的虚拟音频线。"}
+            ? "浏览器仅提供布局与偏好预览；服务器、播放器和音频需使用原生应用。"
+            : "支持 Windows / Android 服务器和播放器、局域网 PIN 配对及系统/麦克风音源。向 Windows 上传麦克风仍需服务器批准及已安装的虚拟音频线。"}
           切换设置页不停止正在运行的音频。
         </p>
       </section>

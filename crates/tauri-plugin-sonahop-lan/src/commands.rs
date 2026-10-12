@@ -11,7 +11,7 @@ pub(crate) async fn prepare_audio<R: Runtime>(
     app: AppHandle<R>,
     mode: String,
 ) -> Result<PermissionResponse> {
-    if mode != "listen" && mode != "microphone" {
+    if mode != "listen" && mode != "microphone" && mode != "playback" {
         return Err(crate::Error::Task("无效音频模式".into()));
     }
     tauri::async_runtime::spawn_blocking(move || app.sonahop_lan().prepare_audio(&mode))

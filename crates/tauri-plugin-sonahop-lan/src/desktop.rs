@@ -1,4 +1,4 @@
-use crate::PermissionResponse;
+use crate::{AudioCapabilities, PermissionResponse};
 use serde::de::DeserializeOwned;
 use tauri::{AppHandle, Runtime, plugin::PluginApi};
 
@@ -29,6 +29,15 @@ impl<R: Runtime> SonahopLan<R> {
     }
     pub fn start_capture(&self) -> crate::Result<()> {
         Err(crate::Error::Task("Android 录音不适用于此平台".into()))
+    }
+    pub fn start_system_capture(&self) -> crate::Result<()> {
+        Err(crate::Error::Task("Android 播放采集不适用于此平台".into()))
+    }
+    pub fn audio_capabilities(&self) -> crate::Result<AudioCapabilities> {
+        Ok(AudioCapabilities {
+            playback_capture: false,
+            microphone_capture: false,
+        })
     }
     pub fn stop_audio(&self) -> crate::Result<()> {
         Ok(())

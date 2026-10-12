@@ -33,6 +33,8 @@ export interface LinkSnapshot {
 }
 export const nativeLinkAvailable = () => isTauri();
 export const getLinkSnapshot = () => invoke<LinkSnapshot>("get_link_snapshot");
+export const switchConnectionRole = (role: "host" | "client") =>
+  invoke<LinkSnapshot>("switch_connection_role", { role });
 export const startLink = (name: string) => invoke<LinkSnapshot>("start_link", { name });
 export const stopLink = () => invoke<void>("stop_link");
 export const connectLink = (address: string, port: number, pairingCode: string) =>

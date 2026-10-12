@@ -1,219 +1,33 @@
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import {
-  GearSixIcon,
-  MonitorIcon,
-  CaretRightIcon,
-  CheckCircleIcon,
-  MicrophoneIcon,
-  SpeakerHighIcon,
-  HouseIcon,
-  PencilSimpleIcon,
-} from "@phosphor-icons/react";
-import {
-  Brand,
-  ModeSwitch,
-  PreviewNotice,
-  RouteDiagram,
-  StatusBadge,
-  VolumeControl,
-  ErrorMessage,
-} from "../components/controls";
+import { GearSixIcon } from "@phosphor-icons/react";
+import { Brand, PreviewNotice, ErrorMessage, StatusBadge } from "../components/controls";
+import { audioStatusLabel } from "../components/audio-controls";
+import { RoleNavigation, WorkspaceScreen } from "../components/workspace";
 import type { Workbench } from "../lib/use-workbench";
 import { SettingsScreen } from "./settings";
-import { ClientLinkPanel } from "../components/lan-connection";
-import { MobileAudioAction, audioStatusLabel } from "../components/audio-controls";
 
-function ComputerCard({ workbench: w }: { workbench: Workbench }) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(w.prefs.computerName);
-  const [address, setAddress] = useState(w.prefs.computerAddress);
-  const [message, setMessage] = useState("");
-  const hasAddress = Boolean(w.prefs.computerAddress);
-  return (
-    <section className="panel computer-panel">
-      <div className="panel-heading">
-        <h2>电脑信息</h2>
-        <StatusBadge label={hasAddress ? "本地偏好" : "未添加"} />
-      </div>
-      {editing ? (
-        <form
-          className="computer-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            w.update({ computerName: name.trim() || "我的电脑", computerAddress: address.trim() });
-            setEditing(false);
-            setMessage("已更新电脑信息；保存地址不会建立连接。");
-          }}
-        >
-          <label className="field-label" htmlFor="computer-name">
-            电脑名称
-          </label>
-          <Input
-            id="computer-name"
-            value={name}
-            maxLength={64}
-            onChange={(event) => setName(event.currentTarget.value)}
-            placeholder="我的电脑"
-          />
-          <label className="field-label" htmlFor="computer-address">
-            电脑地址
-          </label>
-          <Input
-            id="computer-address"
-            value={address}
-            maxLength={255}
-            onChange={(event) => setAddress(event.currentTarget.value)}
-            placeholder="例如 192.168.1.10"
-            inputMode="url"
-            autoCapitalize="off"
-            spellCheck={false}
-          />
-          <div className="form-actions">
-            <Button type="button" className="secondary-button" onClick={() => setEditing(false)}>
-              取消
-            </Button>
-            <Button className="primary-button" type="submit" disabled={!address.trim()}>
-              保存信息
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <>
-          <div className="computer-identity">
-            <span className="device-symbol">
-              <MonitorIcon size={28} weight="bold" />
-            </span>
-            <div>
-              <h3>{hasAddress ? w.prefs.computerName : "添加你的 Windows 电脑"}</h3>
-              <p className={hasAddress ? "mono" : ""}>
-                {hasAddress ? w.prefs.computerAddress : "保存电脑信息后，可在下方手动连接"}
-              </p>
-            </div>
-            <Button
-              className="icon-button"
-              aria-label="编辑电脑信息"
-              onClick={() => {
-                setName(w.prefs.computerName);
-                setAddress(w.prefs.computerAddress);
-                setEditing(true);
-              }}
-            >
-              <PencilSimpleIcon size={19} weight="bold" />
-            </Button>
-          </div>
-          <Button
-            className="computer-action"
-            onClick={() => {
-              setName(w.prefs.computerName);
-              setAddress(w.prefs.computerAddress);
-              setEditing(true);
-            }}
-          >
-            {hasAddress ? "编辑连接信息" : "填写电脑地址"}
-            <CaretRightIcon size={19} weight="bold" />
-          </Button>
-        </>
-      )}
-      {message && (
-        <p className="saved-message" role="status">
-          <CheckCircleIcon size={15} weight="bold" />
-          {message}
-        </p>
-      )}
-    </section>
-  );
-}
 export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
-  const microphone = w.prefs.mode === "microphone";
   return (
-    <div className="mobile-app">
+    <div className="mobile-app multi-role-mobile">
       <header className="mobile-header">
         <Brand small />
         <a className="icon-button" href="#settings" aria-label="打开设置">
           <GearSixIcon size={23} weight="bold" />
         </a>
       </header>
-      <main className="mobile-main">
+      <main className="mobile-main" id="main-content">
+        <RoleNavigation workbench={w} />
         <PreviewNotice browser={w.info.browserPreview} />
         {w.appError && <ErrorMessage message={w.appError} />}
         {w.page === "settings" ? (
           <SettingsScreen workbench={w} mobile />
         ) : (
-          <>
-            <div className="mobile-heading">
-              <p className="eyebrow">YOUR AUDIO, HERE</p>
-              <h1>{microphone ? "发送音频" : "接收音频"}</h1>
-              <p>
-                {microphone
-                  ? "把这台设备的麦克风发送给电脑，批准后开始录音。"
-                  : "接收电脑系统声音，使用这台设备的音量键调节。"}
-              </p>
-            </div>
-            <ModeSwitch
-              senderMode="microphone"
-              mode={w.prefs.mode}
-              disabled={w.audio.busy || w.link.busy}
-              onChange={(mode) => void w.switchMode(mode)}
-            />
-            <div className="mobile-panels">
-              <div>
-                <ComputerCard workbench={w} />
-                <ClientLinkPanel workbench={w} />
-                <section className="panel mobile-flow-panel">
-                  <RouteDiagram mode={w.prefs.mode} mobile />
-                  <p>
-                    {microphone
-                      ? "此设备提供麦克风时，另一台平板仍可以收听电脑声音。"
-                      : "这台设备一次运行一个方向，电脑可同时共享声音和接收麦克风。"}
-                  </p>
-                </section>
-              </div>
-              <section className="panel playback-panel">
-                <div className="panel-heading">
-                  <h2>{microphone ? "麦克风设置" : "播放控制"}</h2>
-                  <span className="quiet-tag">{audioStatusLabel(w)}</span>
-                </div>
-                <div className="playback-identity">
-                  <span className="playback-icon">
-                    {microphone ? (
-                      <MicrophoneIcon size={37} weight="bold" />
-                    ) : (
-                      <SpeakerHighIcon size={37} weight="bold" />
-                    )}
-                  </span>
-                  <div>
-                    <h3>{microphone ? "本设备麦克风" : "本设备扬声器 / 耳机"}</h3>
-                    <p>{audioStatusLabel(w)}</p>
-                  </div>
-                </div>
-                <VolumeControl workbench={w} microphone={microphone} />
-                <MobileAudioAction workbench={w} />
-              </section>
-            </div>
-          </>
+          <WorkspaceScreen workbench={w} />
         )}
+        <div className="mobile-session-status">
+          <StatusBadge label={audioStatusLabel(w)} />
+        </div>
         {!w.saved && <ErrorMessage message="设置未能保存，下次打开可能恢复默认。" />}
       </main>
-      <nav className="mobile-navigation" aria-label="主导航">
-        <a
-          className={w.page === "workspace" ? "active" : ""}
-          href="#workspace"
-          aria-current={w.page === "workspace" ? "page" : undefined}
-        >
-          <HouseIcon size={22} weight="bold" />
-          <span>音频</span>
-        </a>
-        <a
-          className={w.page === "settings" ? "active" : ""}
-          href="#settings"
-          aria-current={w.page === "settings" ? "page" : undefined}
-        >
-          <GearSixIcon size={22} weight="bold" />
-          <span>设置</span>
-        </a>
-      </nav>
     </div>
   );
 }

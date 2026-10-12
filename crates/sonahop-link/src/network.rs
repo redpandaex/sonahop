@@ -459,7 +459,7 @@ async fn host_session(
     let rejection = if pending_since.elapsed() >= APPROVAL_TTL {
         Some("连接请求已超过 60 秒")
     } else if !approve {
-        Some("Windows 已拒绝连接请求")
+        Some("服务器已拒绝连接请求")
     } else {
         None
     };
@@ -501,7 +501,7 @@ async fn host_session(
             &mut writer,
             &mut secure,
             &Payload::Rejected {
-                reason: "Windows 最多允许两台设备连接".into(),
+                reason: "服务器最多允许两台设备连接".into(),
             },
         )
         .await?;
@@ -567,8 +567,8 @@ async fn client_session(
 ) -> Result<(), String> {
     let stream = timeout(Duration::from_secs(5), TcpStream::connect(address))
         .await
-        .map_err(|_| "连接 Windows 超时，请检查地址与防火墙")?
-        .map_err(|error| format!("无法连接 Windows：{error}"))?;
+        .map_err(|_| "连接服务器 超时，请检查地址与防火墙")?
+        .map_err(|error| format!("无法连接服务器：{error}"))?;
     configure_socket(&stream)?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = FrameReader::new(reader);
@@ -645,14 +645,14 @@ async fn client_session(
     }
     let frame = timeout(APPROVAL_TTL + Duration::from_secs(1), reader.read())
         .await
-        .map_err(|_| "Windows 确认已超时，请重新连接")??;
+        .map_err(|_| "服务器确认已超时，请重新连接")??;
     match secure.open(frame)? {
         Payload::Accepted {
             id: accepted_id,
             host_name: accepted_name,
         } if accepted_id == remote_id && accepted_name == host_name => {}
         Payload::Rejected { reason } => return Err(display_reason(&reason)),
-        _ => return Err("Windows 返回了非预期确认消息".into()),
+        _ => return Err("服务器返回了非预期确认消息".into()),
     }
     if !publish_connected(
         &inner,
@@ -684,7 +684,7 @@ fn display_reason(reason: &str) -> String {
         .take(128)
         .collect();
     if reason.is_empty() {
-        "Windows 拒绝了连接请求".into()
+        "服务器拒绝了连接请求".into()
     } else {
         reason
     }

@@ -1,6 +1,6 @@
 ## Default Permission
 
-Allow an explicit local-network permission request.
+Allow explicit local-network and audio preparation requests, including one-time playback capture consent.
 
 #### This default permission set includes the following:
 

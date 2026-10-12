@@ -319,10 +319,10 @@
           "markdownDescription": "Denies the prepare_audio command without any pre-configured scope."
         },
         {
-          "description": "Allow an explicit local-network permission request.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`",
+          "description": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allow an explicit local-network permission request.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`"
+          "markdownDescription": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`"
         }
       ]
     }

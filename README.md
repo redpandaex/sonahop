@@ -2,151 +2,69 @@
 
 以 Rust 为核心、Tauri 提供 Windows / Android 界面的跨设备音频项目。
 
-## 当前交付状态
+## 当前交付：0.3.0
 
-当前源码支持两台 Android 与 Windows 配对；Windows 可同时共享系统声音、接收一台手机麦克风。手机/平板一次运行一个方向，因此可用一台手机供麦克风、另一台平板收听。接收播放使用系统媒体音量键，麦克风增益保留。
+连接角色与操作系统分开：Windows 和 Android 都可选择服务器或播放器。服务器可分别选择内部播放声音或本机麦克风，最多让两台播放器同时收听；两种音源不混音。Windows 服务器还保留接收一台远端麦克风到已有虚拟音频线的功能。
 
-本轮 Windows release / Android ARM64 debug 与前端生产构建成功，APK 签名检查通过。未启动应用、录音/播放、运行自动测试或设备验证，也没有在本机实际注册自启。此前用户确认基本收听和麦克风数据传输已可用；本轮连接稳定性、图标和信号指示待用户复测，Windows 应用接入麦克风仍需要虚拟音频线。
+Windows release、Android ARM64 debug 和前端生产构建成功，APK签名/版本检查见本轮交付记录。没有启动应用、运行自动测试或真实音频/设备验证；新场景由用户复测。此前用户已确认0.2.0麦克风有信号，暂未再次断线。
 
-## 最新测试包
+## 最新安装包
 
-两端导航统一为发送音频 / 接收音频。Windows 发送系统声音、接收手机麦克风；Android 发送麦克风、接收电脑声音。标题说明实际音源。
+- `artifacts/multi-role/sonahop-windows.exe`
+- `artifacts/multi-role/sonahop-android-arm64-debug.apk`
 
-同时更新电脑及两台 Android：
+电脑和两台 Android 都更新到0.3.0，音频申请采用新请求编号，不能混用旧版音频控制。旧ui-preview/audio-mvp/ui-polish/link-diagnostics目录保留历史包，避免混用。Android包维持原debug签名，版本号升级为3000。
 
-- `artifacts/link-diagnostics/sonahop-windows.exe`
-- `artifacts/link-diagnostics/sonahop-android-arm64-debug.apk`
+## Android作为服务器，电脑和平板一起听
 
-旧 audio-mvp / ui-preview 包保留为历史版本。最新包包含 Android 前台状态和 Windows 采集参数重复释放的修复，以及独立音频方向和 Windows 自启设置。
+1. 小米打开“服务器”，在连接区开启服务器，显示六位PIN。
+2. 电脑和Y700切到“播放器”，搜索小米，填小米显示的PIN并发起连接；在小米核对并接受两台播放器。
+3. 小米选择“内部播放声音”并开始共享，允许Android的录音和音频共享授权。电脑和Y700各点击开始收听。
+4. 小米切到音乐/视频应用播放。SonaHop使用前台音频服务继续采集允许共享的应用声音，不夺取该应用的音频焦点。部分应用禁止被采集，可能只收到静音。[Android采集规则](https://developer.android.com/media/platform/av-capture)
+5. 测试麦克风音源时先停止共享、选择本机麦克风再开始；播放器若已停止，需要手动再次开始收听。
 
-1. 平板配对后开始收听，Windows 开始共享并播放歌曲。
-2. 手机配对、切换麦克风并申请；Windows 选择已安装的虚拟音频线播放入口并批准。
-3. 检查平板仍播放，电脑应用选择该虚拟线的录音出口后能收到手机说话。
-4. Windows 两个控制区分别停止共享、停止麦克风，检查另一方向保持；切换电脑界面也不停止音频。
-5. Android 使用系统媒体音量键；Windows 设置中自启初始关闭，可由用户手动切换。
+Windows播放器可选择本应用的扬声器/耳机出口；空值使用默认播放设备，不修改系统默认设备。手机/平板使用系统媒体音量键，播放增益固定为1。
 
-自启只在用户登录 Windows 后打开应用，不自动联网、共享声音或录音。启动项记录当前程序位置，先将 exe 放在固定位置再启用。关闭启动开关会移除该应用的注册项。应用初始化不调用 enable/disable，保留用户已经选择的状态。
+## Windows作为服务器
 
-0.2.0 诊断包将连接读取与发送分离，避免写入等待阻塞心跳处理；连续写阻塞超过 2 秒、20 秒未收到数据才结束控制会话。媒体队列仍最多三帧，排队超过 120ms 的媒体在加密前丢弃。加密与配对方式不变；网络恢复后仍由用户重新连接、启动音频。
+选择“内部播放声音”保留原来的Windows进程采集，排除SonaHop自身，与本地扬声器音量独立。选择“本机麦克风”使用已有录音设备；没有录音端点时选项禁用，连接麦克风后可刷新。
 
-本轮还修正 Windows 图标的 ICO 首帧顺序：Tauri 原先读取 16px 帧后放大，现在优先使用 256px 帧。原图标内容保持。
+手机提供Windows会议麦克风仍走独立路径：手机以播放器角色连接Windows服务器，选择上传本机麦克风、主动申请；Windows选择用户已安装的虚拟音频线播放端（如CABLE Input）并批准，会议/录音应用再选择对应录音端。物理Realtek/HDMI播放设备不能变成Windows录音设备。麦克风不会自动混入系统共享。
 
-### 麦克风与诊断
+## 角色、权限和诊断
 
-- 手机发送数和电脑接收数增长，说明数据正在传输。查看新增的麦克风信号指示，确认其中是否有非静音信号；它显示捕获/解码后的声音强度，不是音量开关。
-- 手机麦克风不会自动混入发送给平板的电脑系统声音。当前系统捕获排除 SonaHop 自己；平板不播放手机说话是当前独立路径设计的结果。
-- Windows 应用要把手机当作麦克风，必须安装可用的虚拟音频线，并在 SonaHop 选其播放端、在会议/录音应用选对应录音端。Realtek Digital Output 和显示器 HDMI 输出是物理播放设备，不能直接变成 Windows 麦克风。
-- 出现断开后，在两端打开“设置 → 连接诊断 → 读取最近日志 → 复制日志”。Windows 还会显示完整文件路径；Android 可直接从应用界面复制。界面保留本次运行最近 256 条，本地文件每份约 1MiB，另保留一份轮换备份。
-- 日志含会话标识、时间、断开原因、收发与过期丢弃计数、最长写入时间，不含 PIN、密钥或音频内容。旧版本没有持久化连接日志，无法补取之前的完整记录。
+界面统一为“服务器 / 播放器 / 设置”。保存连接角色，但应用重启不自动联网、共享或录音。切换角色先停止所有音频、断开连接、释放旧任务和捕获授权；切换设置页保留会话。共享时音源不可更换，停止后再选择。
 
-Windows 原生虚拟播放/录音设备提案见 docs/superpowers/specs/2026-10-12-virtual-audio-devices.md；该提案默认关闭、按能力启用，驱动尚未实现。手机作为服务器、手机↔手机和同一 Android 同时录放仍为后续范围。
-## 构建当前版本
+Android内部播放采集需要Android10+与每次新的系统授权；只建立音频流，没有屏幕录像文件。授权撤销、通知停止、服务结束或错误均终止当前采集，不自动重启麦克风。
 
-本机需要 JDK 21、SDK platform 37、NDK `30.0.16248370`、Visual Studio C++ 与 CMake/Ninja，以及 Rust Android target `aarch64-linux-android`。
+连接仍使用6位PIN/SPAKE2与AES-GCM，TCP读写独立；连续写阻塞2秒或20秒没有数据结束连接。媒体队列最多三帧，排队超过120ms在加密前丢弃。固定Opus48kHz/20ms：收听stereo96kbps、远端麦克风mono48kbps。播放时显示真实包数和信号强度；尚未测量端到端延迟。
 
-仓库根目录运行：
+断线后两端打开“设置 → 连接诊断 → 读取最近日志 → 复制日志”。界面提供本次运行最近256条；本地文件约1MiB，保留一份备份，显示实际文件路径。不记录PIN、密钥或音频正文。读写统计和结束原因用于用户真机复测。
+
+Windows自启默认关闭，用户手动启用后只在登录时打开应用，仍需主动开启连接和音频。注册项使用当前exe位置，移动exe后需重新设置。
+
+## 构建
+
+本机工具：Rust MSVC、Visual Studio C++、CMake/Ninja、JDK21、SDK platform37、NDK30.0.16248370、Rust target aarch64-linux-android。
 
 ```powershell
 pnpm install --frozen-lockfile
-pnpm mvp:build
-```
-
-单独构建可用 `pnpm mvp:windows` 或 `pnpm mvp:android`。如果当前终端没有 Android 环境变量，本机对应位置为：
-
-```powershell
 $env:JAVA_HOME = 'D:\ProgramFiles\java\jdk-21.0.12.1+1'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
 $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
-pnpm mvp:build
+./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/multi-role
 ```
 
-脚本只在调用时构建，不启动应用、播放或录音。它从 Cargo 的锁定依赖取得 Opus 源码，分别构建 Windows / ARM64 Android 静态库，然后使用 Tauri CLI 构建应用。只修改该脚本进程环境；结束时还原环境变量。
+脚本只编译打包，不启动应用或录音。Tauri先生成插件依赖并编译当前Rust，只有明确的Windows符号链接权限错误才使用同一次成功编译的.so交给Gradle。构建日志在artifacts/multi-role/build.log和android-build.log。
 
-构建成功后产物：
+开发原生界面：`pnpm dev`；浏览器预览：`pnpm web:dev`，访问http://localhost:1420/?platform=windows或?platform=android。浏览器只显示布局，不能连接、采集或播放。
 
-- `artifacts/audio-mvp/sonahop-windows.exe`
-- `artifacts/audio-mvp/sonahop-android-arm64-debug.apk`
+前端采用Biome、Tailwind4和shadcn/ui，源码在apps/sonahop-ui/src；`pnpm format`格式化。测试按用户约定手动执行。
 
-Android 脚本先由 Tauri 生成当前原生插件依赖并编译 Rust。只有明确的 Windows 符号链接权限错误且 Rust 已成功完成时，才复制当前 `.so` 后调用 Gradle 打包；其他编译错误直接停止。不会复用一次失败编译留下的旧预览包。构建日志位于 `artifacts/audio-mvp/android-build.log`。本轮独立音频包最后构建日志见 `artifacts/independent-audio/build.log`；脚本可通过 `-OutputDirectory` 指定仓库内产物目录。
+## 诊断CLI与后续
 
-## 音频路径
+`cargo run -p sonahop -- devices --json`仅列Windows播放设备。原有`capture --output artifacts/playback-new.wav --seconds 5`仍是用户手动的系统端点采集诊断，须在采集期间主动播放声音；不会覆盖已有文件，WAV保持float32格式。
 
-电脑→手机使用 Windows 进程级系统声音捕获，排除 SonaHop 本身；与原 CLI 的端点 loopback 诊断路径分开。Android 使用 AudioTrack 播放，播放固定单位增益，使用设备系统媒体音量，不修改电脑音量。
+设计文档：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md；实现计划：docs/superpowers/plans/2026-10-12-multi-role-audio.md。
 
-手机→电脑使用 Android AudioRecord（mono 48 kHz PCM16）与原生 foreground service，经 JNI 交给 Rust Opus 编码后传输；电脑解码并写入用户指定的现有虚拟音频 render 端点。
-
-传输采用固定 Opus / 48 kHz / 20 ms：收听 stereo 96 kbps、麦克风 mono 48 kbps。SPAKE2 协商密钥，AES-GCM 加密控制和媒体；还需电脑明确批准。媒体发送/接收队列最多三帧、TCP 缓冲区有界、写入超时断开；当前先使用 TCP，后续可根据真机网络结果优化传输。界面显示包数和丢弃数；不宣称尚未测量的实际端到端延迟。
-
-## 开发界面
-
-正常开发仍可使用 `pnpm dev`，需要 CMake 在 PATH 或配置本机的 `OPUS_LIB_DIR` 静态库安装根目录。仅浏览器布局运行 `pnpm web:dev`，打开 `http://localhost:1420/?platform=windows` 或 `?platform=android`；浏览器不能调用原生连接或音频。
-
-## 采集诊断 CLI
-
-```powershell
-cargo run -p sonahop -- devices
-cargo run -p sonahop -- devices --json
-```
-
-只枚举播放设备；`*` / `is_default` 标记系统默认设备，不使用 Windows 麦克风。
-需要主动诊断系统播放声音时，在采集期间播放声音：
-
-```powershell
-cargo run -p sonahop -- capture --output artifacts/playback-new.wav --seconds 5
-```
-
-可以增加 `--device '<设备 id>'`。时长为 1～60 秒，默认 5 秒，已有文件不会覆盖。
-WAV 为 float32，保留原设备采样率、声道数和已知扬声器布局。
-Ctrl+C 停止采集并收尾文件，返回 130；读取错误也会尝试停止并收尾。
-设备初始化失败可能留下空文件，重试请换文件名。
-输出摘要包含写入帧数、峰值、不连续次数及窗口时长；没有音频帧与全零音频分别报告。
-用户已手动播放歌曲验证默认 G24H2 loopback 采集成功；这不代表 Android 音频链路或音量独立已经通过。
-
-## 前端工具与组件
-
-前端采用 Biome 2.5.15、Tailwind CSS 4.3.3（Vite 插件）和 shadcn/ui 的 Radix 组件。
-已生成并接入 Button、Input、Badge；组件源码位于 apps/sonahop-ui/src/components/ui，可按项目需求修改。
-Tailwind 与原有布局 CSS 共用暖白/深色主题变量；主题仍使用根元素 data-theme。
-
-```powershell
-pnpm format       # 格式化前端源码
-pnpm format:check # 只检查格式
-pnpm lint         # 静态规则检查
-pnpm check        # 格式、规则、导入检查
-pnpm check:fix    # 应用安全修正
-```
-
-新增组件使用官方 CLI，例如：
-
-```powershell
-pnpm dlx shadcn@latest add dialog -c apps/sonahop-ui
-```
-
-Biome 配置位于 apps/sonahop-ui/biome.json，启用 Tailwind 指令解析，不处理 Rust/Android 生成工程。
-前端扩展推荐包含 Biome 和 Tailwind CSS IntelliSense；用户根目录的 VS Code 设置保持现有内容。
-
-本轮为交付安装包运行了前端生产构建（包含 tsc）、Windows release 与 Android debug 构建，并核对 APK 签名/权限/JNI 符号。没有运行自动测试、应用、浏览器交互或真机验证；额外静态规则检查可由用户运行 `pnpm check`。
-浏览器打开 Windows / Android 预览链接，检查两种主题、模式切换、电脑信息编辑和音量滑块。
-旧 ui-preview APK 仅包含此前图标修正版；直接安装本轮 audio-mvp 产物，修改源码后再使用 mvp 构建脚本。
-## 检查与结构
-
-```powershell
-pnpm typecheck
-pnpm test
-pnpm build
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
-测试使用合成音频，不录制系统声音。
-`artifacts/`、`target/`、`node_modules/` 和前端 `dist/` 均不入库。
-
-- `crates/sonahop-core`：音频格式、采集接口、校验和有界 WAV 写入，不依赖 OS API 或 Tauri。
-- `crates/sonahop-platform-windows`：Windows 端点枚举、WASAPI loopback 和原生资源生命周期。
-- `apps/sonahop-cli`：采集诊断命令。
-- `apps/sonahop-ui`：共用 React 界面、Tauri 只读桥接和生成的 Android 工程。
-
-按 [界面阶段设计](docs/superpowers/specs/2026-10-10-desktop-android-ui-design.md)、[执行计划](docs/superpowers/plans/2026-10-10-desktop-android-ui.md)推进。
-[本阶段验证记录](docs/superpowers/verification/2026-10-10-desktop-android-ui.md)区分浏览器、原生 Windows、APK 构建和未执行的 Android 真机测试。
-Linux/macOS 会在有真实后端时接入。
+Windows自带虚拟播放/录音驱动、同机同时扮演服务器和播放器、手机音源混音、专用USB音频仍为后续范围；虚拟设备方案在docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。

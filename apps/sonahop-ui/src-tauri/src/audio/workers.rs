@@ -1,11 +1,8 @@
-use super::Shared;
-#[cfg(target_os = "android")]
-use sonahop_audio::to_i16;
+use super::backend::{Sink, Source};
+use super::{AudioSource, Shared};
 use sonahop_audio::{
     AudioDecoder, AudioEncoder, FRAME_MILLIS, FRAME_SAMPLES, MediaPacket, StreamKind, to_stereo,
 };
-#[cfg(target_os = "windows")]
-use sonahop_core::AudioCapture;
 use std::collections::VecDeque;
 use std::sync::{
     Arc,
@@ -14,14 +11,15 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-#[cfg(target_os = "android")]
-use tauri_plugin_sonahop_lan::SonahopLanExt;
 
 pub(super) enum WorkerMode {
-    WindowsCapture,
-    AndroidCapture,
-    WindowsPlayback { device: String },
-    AndroidPlayback,
+    Capture {
+        source: AudioSource,
+        device: Option<String>,
+    },
+    Playback {
+        device: Option<String>,
+    },
 }
 pub(super) struct Worker {
     cancel: Arc<AtomicBool>,
@@ -59,10 +57,7 @@ pub(super) fn spawn(
     let join = thread::Builder::new()
         .name("sonahop-audio".into())
         .spawn(move || {
-            let capture = matches!(
-                mode,
-                WorkerMode::WindowsCapture | WorkerMode::AndroidCapture
-            );
+            let capture = matches!(mode, WorkerMode::Capture { .. });
             let result = if capture {
                 capture_loop(&shared, epoch, mode, kind, id, &thread_cancel, ready_tx)
             } else {
@@ -102,71 +97,6 @@ pub(super) fn spawn(
     }
 }
 
-enum Source {
-    #[cfg(target_os = "windows")]
-    Windows(sonahop_platform_windows::SystemCapture),
-    #[cfg(target_os = "android")]
-    Android(tauri::AppHandle),
-    Unsupported,
-}
-impl Source {
-    fn new(shared: &Shared, mode: WorkerMode) -> Result<Self, String> {
-        #[cfg(not(target_os = "android"))]
-        let _ = shared;
-        match mode {
-            #[cfg(target_os = "windows")]
-            WorkerMode::WindowsCapture => sonahop_platform_windows::SystemCapture::new()
-                .map(Self::Windows)
-                .map_err(|e| e.to_string()),
-            #[cfg(target_os = "android")]
-            WorkerMode::AndroidCapture => {
-                tauri_plugin_sonahop_lan::android_audio::clear_capture();
-                shared
-                    .app
-                    .sonahop_lan()
-                    .start_capture()
-                    .map_err(|e| e.to_string())?;
-                Ok(Self::Android(shared.app.clone()))
-            }
-            _ => Err("当前平台不支持此采集方向".into()),
-        }
-    }
-    fn read(&mut self) -> Result<Option<Vec<f32>>, String> {
-        match self {
-            #[cfg(target_os = "windows")]
-            Self::Windows(source) => source
-                .read_packet(Duration::from_millis(FRAME_MILLIS))
-                .map(|p| p.map(|p| p.samples))
-                .map_err(|e| e.to_string()),
-            #[cfg(target_os = "android")]
-            Self::Android(_) => {
-                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error() {
-                    return Err(error);
-                }
-                tauri_plugin_sonahop_lan::android_audio::captured_packet(Duration::from_millis(
-                    FRAME_MILLIS,
-                ))
-                .map(|p| p.map(|samples| samples.into_iter().map(|s| s as f32 / 32768.0).collect()))
-            }
-            Self::Unsupported => Err("音频平台不可用".into()),
-        }
-    }
-}
-impl Drop for Source {
-    fn drop(&mut self) {
-        match self {
-            #[cfg(target_os = "windows")]
-            Self::Windows(source) => {
-                let _ = source.stop();
-            }
-            #[cfg(target_os = "android")]
-            Self::Android(app) => {
-                let _ = app.sonahop_lan().stop_audio();
-            }
-            _ => {}
-        }
-    }
-}
 fn capture_loop(
     shared: &Arc<Shared>,
     epoch: u64,
@@ -192,7 +122,7 @@ fn capture_loop(
     let mut pending = VecDeque::with_capacity(frame_samples * 4);
     let mut next_frame = Instant::now() + Duration::from_millis(FRAME_MILLIS);
     while !cancel.load(Ordering::Acquire) {
-        let samples = source.read()?.unwrap_or_default();
+        let samples = source.read(kind.channels())?.unwrap_or_default();
         if samples.len() > sonahop_core::MAX_PACKET_BYTES / 4
             || samples.iter().any(|s| !s.is_finite())
         {
@@ -216,13 +146,15 @@ fn capture_loop(
             let (peers, gain, valid) = {
                 let state = shared.lock();
                 let peers = if kind == StreamKind::Listen {
-                    state.listeners.iter().cloned().collect::<Vec<_>>()
+                    state.listeners.keys().cloned().collect::<Vec<_>>()
                 } else {
                     state.microphone.peer_id.iter().cloned().collect()
                 };
                 (
                     peers,
-                    if kind == StreamKind::Microphone {
+                    if kind == StreamKind::Microphone
+                        || state.send_source == AudioSource::Microphone
+                    {
                         state.gain as f32 / 100.0
                     } else {
                         1.0
@@ -268,76 +200,6 @@ fn capture_loop(
     Ok(())
 }
 
-enum Sink {
-    #[cfg(target_os = "windows")]
-    Windows(sonahop_platform_windows::AudioOutput),
-    #[cfg(target_os = "android")]
-    Android(tauri::AppHandle),
-    Unsupported,
-}
-impl Sink {
-    fn new(shared: &Shared, mode: WorkerMode) -> Result<Self, String> {
-        #[cfg(not(target_os = "android"))]
-        let _ = shared;
-        match mode {
-            #[cfg(target_os = "windows")]
-            WorkerMode::WindowsPlayback { device } => {
-                sonahop_platform_windows::AudioOutput::new(&device)
-                    .map(Self::Windows)
-                    .map_err(|e| e.to_string())
-            }
-            #[cfg(target_os = "android")]
-            WorkerMode::AndroidPlayback => {
-                shared
-                    .app
-                    .sonahop_lan()
-                    .start_playback()
-                    .map_err(|e| e.to_string())?;
-                Ok(Self::Android(shared.app.clone()))
-            }
-            _ => Err("当前平台不支持此播放方向".into()),
-        }
-    }
-    fn write(&mut self, pcm: &[f32]) -> Result<bool, String> {
-        match self {
-            #[cfg(target_os = "windows")]
-            Self::Windows(output) => {
-                let deadline = Instant::now() + Duration::from_millis(30);
-                let mut consumed = 0;
-                while consumed < pcm.len() && Instant::now() < deadline {
-                    consumed += output
-                        .write(&pcm[consumed..], Duration::from_millis(5))
-                        .map_err(|e| e.to_string())?;
-                }
-                Ok(consumed == pcm.len())
-            }
-            #[cfg(target_os = "android")]
-            Self::Android(_) => {
-                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error() {
-                    return Err(error);
-                }
-                tauri_plugin_sonahop_lan::android_audio::write_playback(&to_i16(pcm))?;
-                Ok(true)
-            }
-            Self::Unsupported => Err("音频平台不可用".into()),
-        }
-    }
-}
-impl Drop for Sink {
-    fn drop(&mut self) {
-        match self {
-            #[cfg(target_os = "windows")]
-            Self::Windows(output) => {
-                let _ = output.stop();
-            }
-            #[cfg(target_os = "android")]
-            Self::Android(app) => {
-                let _ = app.sonahop_lan().stop_audio();
-            }
-            _ => {}
-        }
-    }
-}
 fn playback_loop(
     shared: &Arc<Shared>,
     epoch: u64,

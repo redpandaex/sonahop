@@ -1,4 +1,6 @@
 use serde::Serialize;
+#[cfg(target_os = "android")]
+use tauri_plugin_sonahop_lan::SonahopLanExt;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -6,8 +8,8 @@ pub struct UiAppInfo {
     platform: &'static str,
     version: &'static str,
     ui_preview: bool,
+    system_capture_supported: bool,
 }
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiPlaybackDevice {
@@ -17,7 +19,18 @@ pub struct UiPlaybackDevice {
 }
 
 #[tauri::command]
-pub fn get_app_info() -> UiAppInfo {
+pub async fn get_app_info(_app: tauri::AppHandle) -> UiAppInfo {
+    #[cfg(target_os = "android")]
+    let system_capture_supported = tauri::async_runtime::spawn_blocking(move || {
+        _app.sonahop_lan()
+            .audio_capabilities()
+            .map(|c| c.playback_capture)
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    #[cfg(not(target_os = "android"))]
+    let system_capture_supported = cfg!(target_os = "windows");
     UiAppInfo {
         platform: if cfg!(target_os = "windows") {
             "windows"
@@ -28,34 +41,58 @@ pub fn get_app_info() -> UiAppInfo {
         },
         version: env!("CARGO_PKG_VERSION"),
         ui_preview: false,
+        system_capture_supported,
     }
 }
-
 #[tauri::command]
 pub async fn list_playback_devices() -> Result<Vec<UiPlaybackDevice>, String> {
     #[cfg(target_os = "windows")]
     {
-        // WASAPI COM objects must be created and dropped on this MTA worker.
-        // The WebView's UI thread may already own a different apartment.
         tauri::async_runtime::spawn_blocking(|| {
             sonahop_platform_windows::list_output_devices()
                 .map(|devices| {
                     devices
                         .into_iter()
-                        .map(|device| UiPlaybackDevice {
-                            id: device.id,
-                            name: device.name,
-                            is_default: device.is_default,
+                        .map(|d| UiPlaybackDevice {
+                            id: d.id,
+                            name: d.name,
+                            is_default: d.is_default,
                         })
                         .collect()
                 })
-                .map_err(|error| format!("获取播放设备失败：{error}"))
+                .map_err(|e| format!("获取播放设备失败：{e}"))
         })
         .await
-        .map_err(|error| format!("设备读取任务失败：{error}"))?
+        .map_err(|e| format!("设备读取任务失败：{e}"))?
     }
     #[cfg(not(target_os = "windows"))]
     {
         Err("当前平台不提供 Windows 播放设备枚举".into())
+    }
+}
+#[tauri::command]
+pub async fn list_capture_devices() -> Result<Vec<UiPlaybackDevice>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            sonahop_platform_windows::list_input_devices()
+                .map(|devices| {
+                    devices
+                        .into_iter()
+                        .map(|d| UiPlaybackDevice {
+                            id: d.id,
+                            name: d.name,
+                            is_default: d.is_default,
+                        })
+                        .collect()
+                })
+                .map_err(|e| format!("获取录音设备失败：{e}"))
+        })
+        .await
+        .map_err(|e| format!("录音设备读取任务失败：{e}"))?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
     }
 }

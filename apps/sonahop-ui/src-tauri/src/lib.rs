@@ -3,6 +3,7 @@ mod audio_commands;
 mod commands;
 mod diagnostics_commands;
 mod link_commands;
+mod session_commands;
 use audio::AudioService;
 use sonahop_link::{LinkRole, LinkService};
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub fn run() {
     let app = builder
         .plugin(tauri_plugin_sonahop_lan::init())
         .manage(Arc::new(LinkService::new(role)))
+        .manage(session_commands::OperationGate::default())
         .setup(move |app| {
             let link = app.state::<Arc<LinkService>>().inner().clone();
             let log_result = app.path().app_log_dir().map(|dir| dir.join("sonahop-link.jsonl"));
@@ -37,6 +39,8 @@ pub fn run() {
             commands::get_app_info,
             diagnostics_commands::get_diagnostics,
             commands::list_playback_devices,
+            commands::list_capture_devices,
+            session_commands::switch_connection_role,
             link_commands::get_link_snapshot,
             link_commands::start_link,
             link_commands::stop_link,

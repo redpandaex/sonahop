@@ -10,9 +10,13 @@ pub struct OutputDevice {
 }
 
 #[cfg(windows)]
+mod microphone;
+#[cfg(windows)]
 mod pc_stream;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use self::microphone::{MicrophoneCapture, list_input_devices};
 #[cfg(windows)]
 pub use self::pc_stream::{AudioOutput, SystemCapture};
 #[cfg(windows)]
@@ -26,5 +30,10 @@ pub fn list_output_devices() -> Result<Vec<OutputDevice>, AudioError> {
 }
 #[cfg(not(windows))]
 pub fn open_loopback(_device_id: Option<&str>) -> Result<Box<dyn AudioCapture>, AudioError> {
+    Err(AudioError::UnsupportedPlatform)
+}
+
+#[cfg(not(windows))]
+pub fn list_input_devices() -> Result<Vec<OutputDevice>, AudioError> {
     Err(AudioError::UnsupportedPlatform)
 }

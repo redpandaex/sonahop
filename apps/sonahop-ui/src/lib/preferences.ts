@@ -1,4 +1,6 @@
 export type AudioMode = "listen" | "microphone";
+export type ConnectionRole = "host" | "client";
+export type SendSource = "system" | "microphone";
 export type ThemePreference = "light" | "dark" | "system";
 export interface Preferences {
   version: 1;
@@ -8,6 +10,10 @@ export interface Preferences {
   sourceId: string;
   computerName: string;
   computerAddress: string;
+  connectionRole: ConnectionRole | null;
+  sendSource: SendSource;
+  inputDeviceId: string;
+  outputDeviceId: string;
 }
 export const PREFERENCES_KEY = "sonahop.preferences.v1";
 export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
@@ -16,8 +22,12 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
   volume: 70,
   theme: "light",
   sourceId: "",
-  computerName: "我的电脑",
+  computerName: "我的服务器",
   computerAddress: "",
+  connectionRole: null,
+  sendSource: "system",
+  inputDeviceId: "",
+  outputDeviceId: "",
 });
 function text(value: unknown, fallback: string, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : fallback;
@@ -39,8 +49,15 @@ export function readPreferences(raw: string | null): Preferences {
           ? Math.round(Math.min(100, Math.max(0, data.volume)))
           : 70,
       sourceId: text(data.sourceId, "", 512),
-      computerName: text(data.computerName, "我的电脑", 64) || "我的电脑",
+      computerName: text(data.computerName, "我的服务器", 64) || "我的服务器",
       computerAddress: text(data.computerAddress, "", 255),
+      connectionRole:
+        data.connectionRole === "host" || data.connectionRole === "client"
+          ? data.connectionRole
+          : null,
+      sendSource: data.sendSource === "microphone" ? "microphone" : "system",
+      inputDeviceId: text(data.inputDeviceId, "", 512),
+      outputDeviceId: text(data.outputDeviceId, "", 512),
     };
   } catch {
     return fallback;

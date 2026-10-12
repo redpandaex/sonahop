@@ -16,16 +16,16 @@ export function linkStatusLabel(w: Workbench): string {
     return w.audio.snapshot?.active || w.audio.snapshot?.waiting
       ? audioStatusLabel(w)
       : "已连接 · 音频已停止";
-  if (snapshot.clientState === "awaitingApproval") return "等待电脑确认";
+  if (snapshot.clientState === "awaitingApproval") return "等待服务器确认";
   if (snapshot.clientState === "connecting") return "正在连接";
-  if (snapshot.running) return snapshot.role === "host" ? "允许局域网发现" : "正在搜索电脑";
+  if (snapshot.running) return snapshot.role === "host" ? "允许局域网发现" : "正在搜索服务器";
   return "局域网连接已关闭";
 }
 
 export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
   const { snapshot, busy, available, error } = w.link;
   const running = snapshot?.running ?? false;
-  const disabled = !available || !snapshot || busy || w.audio.busy;
+  const disabled = !available || !snapshot || busy || w.audio.busy || w.roleBusy || !w.roleReady;
   return (
     <section className="panel peer-panel lan-panel">
       <div className="panel-heading">
@@ -34,7 +34,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       </div>
       <div className="lan-service-row">
         <div>
-          <h3>{running ? snapshot?.localName : "允许手机和平板发现这台电脑"}</h3>
+          <h3>{running ? snapshot?.localName : "允许播放器发现这台服务器"}</h3>
           <p>
             {running
               ? `连接端口 ${snapshot?.port}`
@@ -55,22 +55,20 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       </div>
       {snapshot?.role === "host" && snapshot.running && snapshot.pairingCode && (
         <div className="lan-confirmation">
-          <h3>手机连接 PIN</h3>
-          <output className="lan-code" aria-label="手机连接 PIN">
+          <h3>播放器连接 PIN</h3>
+          <output className="lan-code" aria-label="播放器连接 PIN">
             {snapshot.pairingCode}
           </output>
-          <p>在手机输入此六位 PIN 后才能发起有效请求；停止并重新联网会更换 PIN。</p>
+          <p>在播放器输入此六位 PIN 后才能发起有效请求；停止并重新联网会更换 PIN。</p>
         </div>
       )}
       {error && <ErrorMessage message={error} />}
-      {!w.link.native && (
-        <p className="lan-note">请打开 Windows 原生应用，浏览器无法发现或连接设备。</p>
-      )}
+      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法提供服务器。</p>}
       {snapshot && snapshot.requests.length > 0 && (
         <div className="lan-group">
           <h3 className="lan-group-heading">待确认请求</h3>
           <p className="lan-note">
-            连接 PIN 已由后台验证；核对手机上的请求编号和名称后，再接受请求。
+            连接 PIN 已由后台验证；核对播放器上的请求编号和名称后，再接受请求。
           </p>
           {snapshot.requests.map((request) => (
             <div className="lan-device" key={request.id}>
@@ -130,7 +128,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
           ))
         ) : (
           <p className="lan-empty">
-            {running ? "在手机上搜索并发起连接，请求会显示在这里。" : "尚无已连接设备。"}
+            {running ? "在播放器搜索并发起连接，请求会显示在这里。" : "尚无已连接设备。"}
           </p>
         )}
       </div>
@@ -145,21 +143,21 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
   const [pairingCode, setPairingCode] = useState("");
   const validPin = /^\d{6}$/.test(pairingCode);
   const { snapshot, busy, available, error } = w.link;
-  const disabled = !available || !snapshot || busy || w.audio.busy;
+  const disabled = !available || !snapshot || busy || w.audio.busy || w.roleBusy || !w.roleReady;
   const state = snapshot?.clientState ?? "idle";
   const connected = state === "connected";
   const pending = state === "connecting" || state === "awaitingApproval";
   return (
     <section className="panel lan-panel client-lan-panel">
       <div className="panel-heading">
-        <h2>连接电脑</h2>
+        <h2>连接服务器</h2>
         <StatusBadge label={linkStatusLabel(w)} />
       </div>
       <div className="lan-service-row">
         <p>
           {snapshot?.running
             ? "搜索与连接在切换设置页后仍保持。"
-            : "先在 Windows 上开启联网，再搜索同一局域网内的电脑。"}
+            : "先在另一台 Windows 或 Android 上开启服务器，再搜索同一局域网内的设备。"}
         </p>
         <Button
           className={snapshot?.running ? "secondary-button" : "primary-button"}
@@ -174,16 +172,14 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
                 : connected
                   ? "停止连接"
                   : "停止搜索"
-              : "搜索电脑"}
+              : "搜索服务器"}
         </Button>
       </div>
       {error && <ErrorMessage message={error} />}
-      {!w.link.native && (
-        <p className="lan-note">请打开 Android 原生应用，浏览器无法搜索或连接电脑。</p>
-      )}
+      {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法搜索或连接服务器。</p>}
       {pending && (
         <div className="lan-confirmation" role="status">
-          <h3>{state === "awaitingApproval" ? "请在 Windows 上确认连接" : "正在联系电脑…"}</h3>
+          <h3>{state === "awaitingApproval" ? "请在服务器确认连接" : "正在联系服务器…"}</h3>
           {snapshot?.verificationCode && (
             <output className="lan-code" aria-label="核对编号">
               {snapshot.verificationCode}
@@ -191,8 +187,8 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
           )}
           <p>
             {state === "awaitingApproval"
-              ? "核对两端的六位编号，然后在电脑上接受请求。"
-              : "收到电脑回应后，会显示核对编号。"}
+              ? "核对两端的六位编号，然后在服务器上接受请求。"
+              : "收到服务器回应后，会显示核对编号。"}
           </p>
         </div>
       )}
@@ -222,7 +218,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
         <>
           <div className="lan-pin-field">
             <label className="field-label" htmlFor="connection-pin">
-              Windows 显示的连接 PIN
+              服务器显示的连接 PIN
             </label>
             <Input
               id="connection-pin"
@@ -237,11 +233,11 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               }
             />
             <p className="field-help">
-              输入电脑联网区显示的六位 PIN，再选择电脑或填写地址。PIN 不保存到本机。
+              输入服务器连接区显示的六位 PIN，再选择服务器或填写地址。PIN 不保存到本机。
             </p>
           </div>
           <div className="lan-group">
-            <h3 className="lan-group-heading">发现的电脑</h3>
+            <h3 className="lan-group-heading">发现的服务器</h3>
             {snapshot?.discovered.length ? (
               snapshot.discovered.map((host) => (
                 <div className="lan-device" key={host.id}>
@@ -265,7 +261,9 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               ))
             ) : (
               <p className="lan-empty">
-                {snapshot?.running ? "正在搜索…也可以手动填写电脑地址。" : "搜索结果会显示在这里。"}
+                {snapshot?.running
+                  ? "正在搜索…也可以手动填写服务器地址。"
+                  : "搜索结果会显示在这里。"}
               </p>
             )}
           </div>

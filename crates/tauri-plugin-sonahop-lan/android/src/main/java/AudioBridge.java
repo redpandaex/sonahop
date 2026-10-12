@@ -18,10 +18,10 @@ public final class AudioBridge {
     public interface StartResult { void complete(String error); }
 
     private static native void nativeRegister(Class<?> owner);
-    private static native void nativeStarted(long sessionId);
-    private static native void nativeCaptured(byte[] pcm);
-    private static native void nativeAudioFailure(String message);
-    private static native void nativeStopped();
+    private static native void nativeStarted(long sessionId, int captureChannels);
+    private static native void nativeCaptured(byte[] pcm, long sessionId);
+    private static native void nativeAudioFailure(String message, long sessionId);
+    private static native void nativeStopped(long sessionId);
 
     private static void register() {
         if (registered) return;
@@ -35,7 +35,22 @@ public final class AudioBridge {
         registered = true;
     }
 
+    public static synchronized boolean hasActiveSession() { return current != null; }
+
     public static void start(Activity activity, boolean microphone, StartResult callback) {
+        start(activity, microphone, false, null, callback);
+    }
+
+    public static void startSystemCapture(Activity activity, Intent projectionData, StartResult callback) {
+        if (Build.VERSION.SDK_INT < 29 || projectionData == null) {
+            MAIN.post(() -> callback.complete("A fresh Android 10+ playback capture grant is required"));
+            return;
+        }
+        start(activity, false, true, projectionData, callback);
+    }
+
+    private static void start(Activity activity, boolean microphone, boolean systemCapture,
+            Intent projectionData, StartResult callback) {
         final AudioService.Session session;
         synchronized (AudioBridge.class) {
             if (current != null) {
@@ -44,12 +59,12 @@ public final class AudioBridge {
             }
             try {
                 register();
-                nativeStarted(nextId + 1);
+                nativeStarted(nextId + 1, systemCapture ? 2 : microphone ? 1 : 0);
             } catch (LinkageError | RuntimeException error) {
                 MAIN.post(() -> callback.complete("Audio JNI registration failed: " + error.getMessage()));
                 return;
             }
-            session = new AudioService.Session(++nextId, activity.getApplicationContext(), microphone, callback);
+            session = new AudioService.Session(++nextId, activity.getApplicationContext(), microphone, systemCapture, projectionData, callback);
             current = session;
         }
         Intent intent = new Intent(activity, AudioService.class)
@@ -95,13 +110,13 @@ public final class AudioBridge {
 
 
     static synchronized void captured(AudioService.Session session, byte[] bytes) {
-        if (current == session && session.running && session.ready) nativeCaptured(bytes);
+        if (current == session && session.running && session.ready) nativeCaptured(bytes, session.id);
     }
 
     static void fail(AudioService.Session session, String message) {
         synchronized (AudioBridge.class) {
             if (current != session || !session.running) return;
-            nativeAudioFailure(message);
+            nativeAudioFailure(message, session.id);
         }
         stop(session, message);
     }
@@ -123,7 +138,7 @@ public final class AudioBridge {
             if (current != session || !session.running) return;
             session.running = false;
             // A stopped session cannot publish PCM or an error into its successor.
-            nativeStopped();
+            nativeStopped(session.id);
         }
         complete(session, reason == null ? "Android audio start was cancelled" : reason);
         session.dispose();
@@ -149,7 +164,7 @@ public final class AudioBridge {
     public static int writePlayback(byte[] pcm, long expectedSession) {
         final AudioService.Session session;
         synchronized (AudioBridge.class) { session = current; }
-        if (session == null || session.id != expectedSession || session.microphone || !session.running || !session.ready
+        if (session == null || session.id != expectedSession || session.captureChannels != 0 || !session.running || !session.ready
                 || pcm == null || pcm.length == 0 || pcm.length % 4 != 0 || pcm.length > 7680) return -1;
         int written = 0;
         long deadline = SystemClock.elapsedRealtimeNanos() + 20_000_000L;

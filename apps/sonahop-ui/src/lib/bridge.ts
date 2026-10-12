@@ -5,6 +5,7 @@ export interface AppInfo {
   version: string;
   uiPreview: boolean;
   browserPreview: boolean;
+  systemCaptureSupported: boolean;
 }
 export interface PlaybackDevice {
   id: string;
@@ -22,7 +23,13 @@ export function platformHint(): Platform {
 }
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isTauri())
-    return { platform: platformHint(), version: "0.2.0", uiPreview: true, browserPreview: true };
+    return {
+      platform: platformHint(),
+      version: "0.3.0",
+      uiPreview: true,
+      browserPreview: true,
+      systemCaptureSupported: false,
+    };
   const value = await invoke<Omit<AppInfo, "browserPreview">>("get_app_info");
   return { ...value, browserPreview: false };
 }
@@ -33,6 +40,10 @@ export async function listPlaybackDevices(): Promise<PlaybackDevice[]> {
       { id: "preview-headphones", name: "耳机输出（示例）", isDefault: false },
     ];
   return invoke<PlaybackDevice[]>("list_playback_devices");
+}
+export async function listCaptureDevices(): Promise<PlaybackDevice[]> {
+  if (!isTauri()) return [];
+  return invoke<PlaybackDevice[]>("list_capture_devices");
 }
 export async function setDesktopTheme(
   theme: "light" | "dark" | "system",

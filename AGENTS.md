@@ -25,11 +25,11 @@
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/specs/2026-10-12-independent-audio.md and the matching plan. Earlier UI, LAN and exclusive audio MVP documents are historical stages.
+- Follow docs/superpowers/specs/2026-10-12-multi-role-audio-design.md and docs/superpowers/plans/2026-10-12-multi-role-audio.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
 - The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
 - Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
 - Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
-- Windows process loopback is the streaming source; the existing endpoint WAV CLI remains diagnostic. Android alone supplies microphone input; do not change system volume/output route, install drivers or modify firewall.
+- Windows and Android may each host or play. Server source is explicitly system playback or a local microphone. Windows process loopback remains the system source; Android uses one-time MediaProjection playback capture. Player output is local and never changes OS defaults. The WAV CLI remains diagnostic.
 - No automatic microphone restart. Connection, approval, user audio start, hardware initialization, error and stop states must be real.
 - Virtual audio render sink selection is explicit and uses user-installed software; never auto-select a physical speaker.
 - The latest overnight request authorizes final exe/APK packaging so the owner can test tomorrow. Compile/package and repair compilation errors; do not run automated tests, launch apps, or interact with audio/devices. Earlier user-run-only build guidance applies to intermediate verification, not this final delivery.
@@ -45,4 +45,6 @@
 - Native Windows virtual playback/capture endpoints remain a future driver-backed milestone. Do not install drivers or change OS defaults; record the default-off, capability-gated proposal.
 - Receiving playback uses unit gain and the Android media-volume keys; microphone gain is retained.
 - Autostart registration happens only after a user toggle, never automatically during app startup or agent verification.
-- Phone hosting and phone-to-phone audio remain future work.
+- Android hosting, phone-to-phone audio and Windows player are this stage's authorized scope. Role and platform are independent; role switching stops old audio/connections. Servers support two players. Each player uses one audio direction at a time; Windows host can additionally receive one remote microphone.
+- Android playback capture must not request audio focus or record the hardware microphone. Obtain fresh consent for every start, run the mediaProjection foreground service first, and release when revoked/stopped. JNI callbacks must match their session and mono/stereo packet size.
+- Windows microphone capture requires an available recording endpoint; no device means a disabled input choice and a clear explanation. Do not create virtual devices or install drivers.

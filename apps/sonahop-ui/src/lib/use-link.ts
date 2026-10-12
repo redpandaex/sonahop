@@ -8,6 +8,7 @@ import {
   getLinkSnapshot,
   nativeLinkAvailable,
   startLink,
+  switchConnectionRole,
   stopLink,
 } from "./link-bridge";
 import type { LinkSnapshot } from "./link-bridge";
@@ -129,11 +130,15 @@ export function useLink(platform: Platform, appReady: boolean) {
       }),
     [perform, platform],
   );
+  const changeRole = useCallback(
+    (role: "host" | "client") => perform(() => switchConnectionRole(role)),
+    [perform],
+  );
   const stop = useCallback(() => perform(stopLink), [perform]);
   const connect = useCallback(
     (address: string, port: number, pairingCode: string) =>
       perform(async (publish) => {
-        if (!/^\d{6}$/.test(pairingCode)) throw new Error("请输入 Windows 显示的六位连接 PIN。");
+        if (!/^\d{6}$/.test(pairingCode)) throw new Error("请输入服务器显示的六位连接 PIN。");
         const name = await ensureNetworkAccess(platform);
         if (!currentSnapshot.current?.running) publish(await startLink(name));
         await connectLink(address, port, pairingCode);
@@ -155,6 +160,7 @@ export function useLink(platform: Platform, appReady: boolean) {
     native,
     busy,
     error: operationError || pollError || snapshot?.lastError || "",
+    changeRole,
     start,
     stop,
     connect,

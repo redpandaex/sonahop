@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { ErrorMessage } from "../components/controls";
+import { DiagnosticSettings } from "../components/diagnostic-settings";
 import {
   SunIcon,
   MoonIcon,
@@ -135,6 +136,7 @@ export function SettingsScreen({
           <span className="quiet-tag">{w.saved ? "已保存" : "未保存"}</span>
         </div>
       </section>
+      <DiagnosticSettings />
       <section className="panel settings-panel">
         <div className="panel-heading">
           <h2>关于 SonaHop</h2>

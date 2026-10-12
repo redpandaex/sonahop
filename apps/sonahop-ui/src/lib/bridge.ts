@@ -22,7 +22,7 @@ export function platformHint(): Platform {
 }
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isTauri())
-    return { platform: platformHint(), version: "0.1.0", uiPreview: true, browserPreview: true };
+    return { platform: platformHint(), version: "0.2.0", uiPreview: true, browserPreview: true };
   const value = await invoke<Omit<AppInfo, "browserPreview">>("get_app_info");
   return { ...value, browserPreview: false };
 }

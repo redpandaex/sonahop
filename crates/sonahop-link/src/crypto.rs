@@ -58,14 +58,15 @@ pub(crate) fn decode(value: &str, maximum: usize) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) struct SecureChannel {
-    send: Aes256Gcm,
-    receive: Aes256Gcm,
-    send_prefix: [u8; 4],
-    receive_prefix: [u8; 4],
-    send_counter: u64,
-    receive_counter: u64,
-    binding: [u8; 32],
+    send: DirectionalCipher,
+    receive: DirectionalCipher,
     pub verification_code: String,
+}
+pub(crate) struct DirectionalCipher {
+    cipher: Aes256Gcm,
+    prefix: [u8; 4],
+    counter: u64,
+    binding: [u8; 32],
 }
 impl SecureChannel {
     pub fn establish(
@@ -114,40 +115,63 @@ impl SecureChannel {
         let receive = Aes256Gcm::new_from_slice(receive_key).map_err(|_| AUTH_ERROR)?;
         material.fill(0);
         Ok(Self {
-            send,
-            receive,
-            send_prefix,
-            receive_prefix,
-            send_counter: 0,
-            receive_counter: 0,
-            binding,
+            send: DirectionalCipher {
+                cipher: send,
+                prefix: send_prefix,
+                counter: 0,
+                binding,
+            },
+            receive: DirectionalCipher {
+                cipher: receive,
+                prefix: receive_prefix,
+                counter: 0,
+                binding,
+            },
             verification_code: format!("{:06}", u32::from_be_bytes(code) % 1_000_000),
         })
     }
-    fn aad(&self, counter: u64, prefix: [u8; 4]) -> Vec<u8> {
-        let mut aad = Vec::with_capacity(45);
-        aad.push(VERSION);
-        aad.extend_from_slice(&self.binding);
-        aad.extend_from_slice(&prefix);
-        aad.extend_from_slice(&counter.to_be_bytes());
-        aad
+    pub fn seal(&mut self, payload: &Payload) -> Result<Frame, String> {
+        self.send.seal(payload)
     }
-    fn nonce(prefix: [u8; 4], counter: u64) -> [u8; 12] {
+    pub fn open(&mut self, frame: Frame) -> Result<Payload, String> {
+        self.receive.open(frame)
+    }
+    pub fn session_tag(&self) -> String {
+        // Public handshake transcript digest; never key or PIN material.
+        self.send.binding[..8]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+    pub fn into_split(self) -> (DirectionalCipher, DirectionalCipher) {
+        (self.send, self.receive)
+    }
+}
+impl DirectionalCipher {
+    fn nonce(&self, counter: u64) -> [u8; 12] {
         let mut nonce = [0; 12];
-        nonce[..4].copy_from_slice(&prefix);
+        nonce[..4].copy_from_slice(&self.prefix);
         nonce[4..].copy_from_slice(&counter.to_be_bytes());
         nonce
     }
+    fn aad(&self, counter: u64) -> Vec<u8> {
+        let mut aad = Vec::with_capacity(45);
+        aad.push(VERSION);
+        aad.extend_from_slice(&self.binding);
+        aad.extend_from_slice(&self.prefix);
+        aad.extend_from_slice(&counter.to_be_bytes());
+        aad
+    }
     pub fn seal(&mut self, payload: &Payload) -> Result<Frame, String> {
-        if self.send_counter >= MAX_COUNTER {
-            return Err("加密会话已达到帧数上限，请重新连接".into());
+        if self.counter >= MAX_COUNTER {
+            return Err("加密会话达到帧数上限，请重新连接".into());
         }
         let plaintext = protocol::bounded_json(payload, MAX_PLAINTEXT)?;
-        let counter = self.send_counter;
-        let nonce = Self::nonce(self.send_prefix, counter);
-        let aad = self.aad(counter, self.send_prefix);
+        let counter = self.counter;
+        let nonce = self.nonce(counter);
+        let aad = self.aad(counter);
         let ciphertext = self
-            .send
+            .cipher
             .encrypt(
                 Nonce::from_slice(&nonce),
                 AeadPayload {
@@ -156,8 +180,7 @@ impl SecureChannel {
                 },
             )
             .map_err(|_| AUTH_ERROR.to_owned())?;
-        // Counters are consumed even if the subsequent write fails; that write terminates the session.
-        self.send_counter += 1;
+        self.counter += 1;
         Ok(Frame::Encrypted {
             version: VERSION,
             counter,
@@ -173,15 +196,14 @@ impl SecureChannel {
         else {
             return Err(AUTH_ERROR.into());
         };
-        // TCP is ordered: exactly the next counter is required, rejecting replays and skipped frames.
-        if counter != self.receive_counter || counter >= MAX_COUNTER {
+        if counter != self.counter || counter >= MAX_COUNTER {
             return Err(AUTH_ERROR.into());
         }
         let ciphertext = decode(&body, MAX_PLAINTEXT + 16)?;
-        let nonce = Self::nonce(self.receive_prefix, counter);
-        let aad = self.aad(counter, self.receive_prefix);
+        let nonce = self.nonce(counter);
+        let aad = self.aad(counter);
         let plaintext = self
-            .receive
+            .cipher
             .decrypt(
                 Nonce::from_slice(&nonce),
                 AeadPayload {
@@ -191,7 +213,7 @@ impl SecureChannel {
             )
             .map_err(|_| AUTH_ERROR.to_owned())?;
         let payload = serde_json::from_slice(&plaintext).map_err(|_| AUTH_ERROR.to_owned())?;
-        self.receive_counter += 1;
+        self.counter += 1;
         Ok(payload)
     }
 }

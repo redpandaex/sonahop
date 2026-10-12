@@ -1,5 +1,6 @@
 //! PIN-authenticated, encrypted SonaHop v2 LAN control and media transport.
 mod crypto;
+mod diagnostics;
 mod network;
 mod protocol;
 
@@ -81,10 +82,14 @@ pub(crate) enum Command {
     Answer(bool),
     Disconnect,
 }
+pub(crate) struct MediaEnvelope {
+    pub payload: Vec<u8>,
+    pub queued_at: Instant,
+}
 pub(crate) struct Control {
     pub sender: mpsc::Sender<Command>,
     pub controls: mpsc::Sender<Value>,
-    pub media: mpsc::Sender<Vec<u8>>,
+    pub media: mpsc::Sender<MediaEnvelope>,
     pub connected: bool,
     pub answered: bool,
     pub approval_deadline: Option<Instant>,
@@ -92,7 +97,7 @@ pub(crate) struct Control {
 pub(crate) struct Outbound {
     pub commands: mpsc::Receiver<Command>,
     pub controls: mpsc::Receiver<Value>,
-    pub media: mpsc::Receiver<Vec<u8>>,
+    pub media: mpsc::Receiver<MediaEnvelope>,
 }
 pub(crate) fn channels() -> (Control, Outbound) {
     let (sender, commands) = mpsc::channel(2);
@@ -125,6 +130,7 @@ pub(crate) struct State {
 pub(crate) struct Inner {
     pub state: Mutex<State>,
     pub events: broadcast::Sender<LinkEvent>,
+    pub diagnostics: diagnostics::Diagnostics,
     lifecycle: tokio::sync::Mutex<()>,
 }
 impl Inner {
@@ -229,6 +235,13 @@ pub(crate) fn finish_connection(inner: &Inner, generation: u64, id: &str, error:
             peer_id: id.to_owned(),
         });
     }
+    if let Some(message) = &error {
+        state.snapshot.last_error = Some(message.clone());
+    }
+    inner.diagnostics.log(
+        "connection-ended",
+        serde_json::json!({"peerId": id, "connected": connected, "reason": error}),
+    );
     if state.snapshot.role == LinkRole::Client {
         state.snapshot.client_state = ClientState::Discovering;
         state.snapshot.verification_code = None;
@@ -273,6 +286,7 @@ impl LinkService {
         let (events, _) = broadcast::channel(128);
         Self {
             inner: Arc::new(Inner {
+                diagnostics: diagnostics::Diagnostics::default(),
                 lifecycle: tokio::sync::Mutex::new(()),
                 events,
                 state: Mutex::new(State {
@@ -300,6 +314,21 @@ impl LinkService {
     }
     pub fn subscribe(&self) -> broadcast::Receiver<LinkEvent> {
         self.inner.events.subscribe()
+    }
+    pub fn configure_logging(&self, path: std::path::PathBuf) -> Result<(), String> {
+        self.inner.diagnostics.configure(path)
+    }
+    pub fn diagnostics_path(&self) -> Option<String> {
+        self.inner.diagnostics.path()
+    }
+    pub fn diagnostics_error(&self) -> Option<String> {
+        self.inner.diagnostics.error()
+    }
+    pub fn diagnostic_log(&self) -> String {
+        self.inner.diagnostics.recent()
+    }
+    pub fn log_event(&self, event: &str, fields: Value) {
+        self.inner.diagnostics.log(event, fields);
     }
     pub fn snapshot(&self) -> LinkSnapshot {
         let state = self.inner.lock();
@@ -359,11 +388,16 @@ impl LinkService {
             state.cancel = Some(cancel_tx);
             state.generation
         };
+        self.log_event(
+            "link-start",
+            serde_json::json!({"role":role,"port":CONTROL_PORT}),
+        );
         network::launch(&self.inner, generation, sockets, cancel_rx);
         Ok(self.snapshot())
     }
     pub async fn stop(&self) {
         let _lifecycle = self.inner.lifecycle.lock().await;
+        self.log_event("link-stop", serde_json::json!({}));
         {
             let mut state = self.inner.lock();
             state.snapshot.last_error = None;
@@ -495,7 +529,10 @@ impl LinkService {
             .ok_or("音频设备未连接")?;
         control
             .media
-            .try_send(payload)
+            .try_send(MediaEnvelope {
+                payload,
+                queued_at: Instant::now(),
+            })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(_) => "音频发送队列已满，本帧已丢弃".into(),
                 mpsc::error::TrySendError::Closed(_) => "音频设备已断开".into(),

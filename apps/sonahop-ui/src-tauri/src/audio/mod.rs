@@ -41,6 +41,7 @@ pub struct MicRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaneSnapshot {
+    pub peak_level: f32,
     pub active: bool,
     pub waiting: bool,
     pub last_error: Option<String>,
@@ -114,6 +115,7 @@ enum Phase {
     Active,
 }
 struct LaneState {
+    peak_level: f32,
     phase: Phase,
     stream_id: Option<[u8; 16]>,
     epoch: u64,
@@ -128,6 +130,7 @@ struct LaneState {
 impl LaneState {
     fn new() -> Self {
         Self {
+            peak_level: 0.0,
             phase: Phase::Idle,
             stream_id: None,
             epoch: 0,
@@ -142,6 +145,7 @@ impl LaneState {
     }
     fn snapshot(&self) -> LaneSnapshot {
         LaneSnapshot {
+            peak_level: self.peak_level,
             active: self.phase == Phase::Active,
             waiting: self.phase == Phase::Waiting,
             last_error: self.error.clone(),
@@ -237,6 +241,7 @@ impl Shared {
             if let Some(worker) = &lane.worker {
                 worker.cancel();
             }
+            lane.peak_level = 0.0;
             lane.phase = Phase::Idle;
             lane.stream_id = None;
             lane.error = Some(error.clone());
@@ -247,6 +252,7 @@ impl Shared {
             }
             peers
         };
+        self.link.log_event("audio-failed", serde_json::json!({"lane":if kind==StreamKind::Listen{"listen"}else{"microphone"},"epoch":epoch,"reason":error}));
         for peer in peers {
             let _ = self.send(&peer, AudioControl::stop(kind, error.clone()));
         }
@@ -487,6 +493,7 @@ impl AudioService {
                 worker.cancel();
             }
             lane.error = None;
+            lane.peak_level = 0.0;
             lane.stream_id = Some(id);
             lane.phase = Phase::Waiting;
             (lane.epoch, old)
@@ -523,6 +530,7 @@ impl AudioService {
             Err(error) => {
                 let mut state = self.shared.lock();
                 let lane = state.lane_mut(kind);
+                lane.peak_level = 0.0;
                 lane.phase = Phase::Idle;
                 lane.stream_id = None;
                 lane.peer_id = None;
@@ -592,6 +600,7 @@ impl AudioService {
             if let Some(worker) = &worker {
                 worker.cancel();
             }
+            lane.peak_level = 0.0;
             lane.phase = Phase::Idle;
             lane.stream_id = None;
             lane.peer_id = None;

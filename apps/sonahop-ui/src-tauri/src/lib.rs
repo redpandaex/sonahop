@@ -1,6 +1,7 @@
 mod audio;
 mod audio_commands;
 mod commands;
+mod diagnostics_commands;
 mod link_commands;
 use audio::AudioService;
 use sonahop_link::{LinkRole, LinkService};
@@ -21,6 +22,12 @@ pub fn run() {
         .manage(Arc::new(LinkService::new(role)))
         .setup(move |app| {
             let link = app.state::<Arc<LinkService>>().inner().clone();
+            let log_result = app.path().app_log_dir().map(|dir| dir.join("sonahop-link.jsonl"));
+            match log_result {
+                Ok(path) => if let Err(error)=link.configure_logging(path) { link.log_event("log-unavailable",serde_json::json!({"reason":error})); },
+                Err(error) => link.log_event("log-unavailable",serde_json::json!({"reason":error.to_string()})),
+            }
+            link.log_event("app-start",serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS}));
             let audio = Arc::new(AudioService::new(app.handle().clone(), link, role));
             audio.start_events();
             app.manage(audio);
@@ -28,6 +35,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            diagnostics_commands::get_diagnostics,
             commands::list_playback_devices,
             link_commands::get_link_snapshot,
             link_commands::start_link,

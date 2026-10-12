@@ -89,7 +89,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
               <section className="panel source-panel">
                 <div className="panel-heading">
                   <h2>{microphone ? "电脑接收入口" : "音频来源"}</h2>
-                  <StatusBadge label={audioStatusLabel(w)} />
+                  <StatusBadge label={audioStatusLabel(w, w.prefs.mode)} />
                 </div>
                 <div className="source-identity">
                   <span className="device-symbol">

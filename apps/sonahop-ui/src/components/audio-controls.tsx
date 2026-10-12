@@ -11,10 +11,30 @@ import { ArrowRightIcon, ArrowClockwiseIcon, MicrophoneIcon } from "@phosphor-ic
 import { ErrorMessage, StatusBadge } from "./controls";
 import type { Workbench } from "../lib/use-workbench";
 
-export function audioStatusLabel(w: Workbench): string {
+export function audioStatusLabel(w: Workbench, lane?: "listen" | "microphone"): string {
   if (!w.audio.available) return w.info.browserPreview ? "浏览器布局预览" : "音频服务未就绪";
   const value = w.audio.snapshot;
   if (!value) return "正在读取音频状态";
+  if (lane) {
+    const status = value[lane];
+    if (status.active)
+      return lane === "listen"
+        ? value.role === "host"
+          ? "正在共享系统声音"
+          : "正在收听"
+        : value.role === "host"
+          ? "接收手机麦克风"
+          : "麦克风传输中";
+    if (status.waiting)
+      return lane === "listen"
+        ? value.role === "host"
+          ? "等待设备开始收听"
+          : "等待电脑开启共享"
+        : value.role === "host"
+          ? "等待手机麦克风"
+          : "等待电脑批准麦克风";
+    return "音频已停止";
+  }
   if (value.role === "host" && value.listen.active && value.microphone.active)
     return "共享声音 · 接收手机麦克风";
   if (value.active) {
@@ -39,17 +59,42 @@ export function AudioDiagnostics({
 }) {
   const snapshot = lane ? w.audio.snapshot?.[lane] : w.audio.snapshot;
   if (!snapshot || w.info.browserPreview) return null;
+  const microphone = w.audio.snapshot?.microphone;
+  const showSignal = (lane ?? w.prefs.mode) === "microphone" && microphone;
+  const peak = Math.max(0, Math.min(1, microphone?.peakLevel ?? 0));
+  const signal = peak > 0.001;
+  const level = peak > 0 ? Math.round(Math.max(0, (Math.log10(peak) * 20 + 60) / 60) * 100) : 0;
   return (
-    <div className="audio-diagnostics" aria-label="音频链路统计">
-      <span>
-        发送 <b className="mono">{snapshot.sentPackets}</b>
-      </span>
-      <span>
-        接收 <b className="mono">{snapshot.receivedPackets}</b>
-      </span>
-      <span>
-        丢弃 <b className="mono">{snapshot.droppedPackets}</b>
-      </span>
+    <div className="audio-telemetry">
+      {showSignal && (
+        <div className="microphone-signal">
+          <div className="control-title">
+            <span>{w.info.platform === "windows" ? "电脑收到的声音" : "麦克风输入信号"}</span>
+            <span>{microphone.active ? (signal ? "检测到声音" : "暂未检测到声音") : "未启动"}</span>
+          </div>
+          <div
+            className="signal-track"
+            role="meter"
+            aria-label="麦克风信号强度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={level}
+          >
+            <div className="signal-fill" style={{ width: level + "%" }} />
+          </div>
+        </div>
+      )}
+      <div className="audio-diagnostics" aria-label="音频链路统计">
+        <span>
+          发送 <b className="mono">{snapshot.sentPackets}</b>
+        </span>
+        <span>
+          接收 <b className="mono">{snapshot.receivedPackets}</b>
+        </span>
+        <span>
+          丢弃 <b className="mono">{snapshot.droppedPackets}</b>
+        </span>
+      </div>
     </div>
   );
 }

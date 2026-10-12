@@ -205,13 +205,13 @@ pub(crate) async fn write<W: AsyncWrite + Unpin>(
     frame: &Frame,
 ) -> Result<(), String> {
     let payload = bounded_json(frame, MAX_FRAME)?;
-    timeout(Duration::from_millis(250), async {
+    timeout(Duration::from_secs(2), async {
         writer
             .write_all(&(payload.len() as u32).to_be_bytes())
             .await?;
         writer.write_all(&payload).await
     })
     .await
-    .map_err(|_| "连接发送阻塞，已断开以避免音频积压".to_owned())?
+    .map_err(|_| "连接连续发送阻塞超过 2 秒，请检查网络；已结束会话".to_owned())?
     .map_err(|error| format!("连接写入失败：{error}"))
 }

@@ -6,7 +6,7 @@
 
 当前源码支持两台 Android 与 Windows 配对；Windows 可同时共享系统声音、接收一台手机麦克风。手机/平板一次运行一个方向，因此可用一台手机供麦克风、另一台平板收听。接收播放使用系统媒体音量键，麦克风增益保留。
 
-本轮 Windows release / Android ARM64 debug 与前端生产构建成功，APK 签名检查通过。未启动应用、录音/播放、运行自动测试或设备验证，也没有在本机实际注册自启。此前用户确认基本收听已可用；新增混合收发和启动设置待用户复测。
+本轮 Windows release / Android ARM64 debug 与前端生产构建成功，APK 签名检查通过。未启动应用、录音/播放、运行自动测试或设备验证，也没有在本机实际注册自启。此前用户确认基本收听和麦克风数据传输已可用；本轮连接稳定性、图标和信号指示待用户复测，Windows 应用接入麦克风仍需要虚拟音频线。
 
 ## 最新测试包
 
@@ -14,8 +14,8 @@
 
 同时更新电脑及两台 Android：
 
-- `artifacts/ui-polish/sonahop-windows.exe`
-- `artifacts/ui-polish/sonahop-android-arm64-debug.apk`
+- `artifacts/link-diagnostics/sonahop-windows.exe`
+- `artifacts/link-diagnostics/sonahop-android-arm64-debug.apk`
 
 旧 audio-mvp / ui-preview 包保留为历史版本。最新包包含 Android 前台状态和 Windows 采集参数重复释放的修复，以及独立音频方向和 Windows 自启设置。
 
@@ -27,7 +27,19 @@
 
 自启只在用户登录 Windows 后打开应用，不自动联网、共享声音或录音。启动项记录当前程序位置，先将 exe 放在固定位置再启用。关闭启动开关会移除该应用的注册项。应用初始化不调用 enable/disable，保留用户已经选择的状态。
 
-此次保持原有网络超时、配对与重连策略；偶发断线按用户要求留待后续。手机作为服务器、手机↔手机和同一 Android 同时录放尚未实现。
+0.2.0 诊断包将连接读取与发送分离，避免写入等待阻塞心跳处理；连续写阻塞超过 2 秒、20 秒未收到数据才结束控制会话。媒体队列仍最多三帧，排队超过 120ms 的媒体在加密前丢弃。加密与配对方式不变；网络恢复后仍由用户重新连接、启动音频。
+
+本轮还修正 Windows 图标的 ICO 首帧顺序：Tauri 原先读取 16px 帧后放大，现在优先使用 256px 帧。原图标内容保持。
+
+### 麦克风与诊断
+
+- 手机发送数和电脑接收数增长，说明数据正在传输。查看新增的麦克风信号指示，确认其中是否有非静音信号；它显示捕获/解码后的声音强度，不是音量开关。
+- 手机麦克风不会自动混入发送给平板的电脑系统声音。当前系统捕获排除 SonaHop 自己；平板不播放手机说话是当前独立路径设计的结果。
+- Windows 应用要把手机当作麦克风，必须安装可用的虚拟音频线，并在 SonaHop 选其播放端、在会议/录音应用选对应录音端。Realtek Digital Output 和显示器 HDMI 输出是物理播放设备，不能直接变成 Windows 麦克风。
+- 出现断开后，在两端打开“设置 → 连接诊断 → 读取最近日志 → 复制日志”。Windows 还会显示完整文件路径；Android 可直接从应用界面复制。界面保留本次运行最近 256 条，本地文件每份约 1MiB，另保留一份轮换备份。
+- 日志含会话标识、时间、断开原因、收发与过期丢弃计数、最长写入时间，不含 PIN、密钥或音频内容。旧版本没有持久化连接日志，无法补取之前的完整记录。
+
+Windows 原生虚拟播放/录音设备提案见 docs/superpowers/specs/2026-10-12-virtual-audio-devices.md；该提案默认关闭、按能力启用，驱动尚未实现。手机作为服务器、手机↔手机和同一 Android 同时录放仍为后续范围。
 ## 构建当前版本
 
 本机需要 JDK 21、SDK platform 37、NDK `30.0.16248370`、Visual Studio C++ 与 CMake/Ninja，以及 Rust Android target `aarch64-linux-android`。

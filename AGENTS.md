@@ -40,7 +40,9 @@
 
 ## Current accepted changes
 - The owner asked to implement volume-control removal, default-off Windows autostart and independent Windows listen/microphone lanes, then they will test.
-- Preserve LAN timeouts/reconnect behavior for this stage; the owner explicitly deferred disconnection work.
+- The owner reopened disconnection work with send-blocked/heartbeat-timeout screenshots. Follow docs/superpowers/plans/2026-10-12-link-diagnostics.md; implement bounded logs and decouple connection reads from writes. Device verification remains owner-run.
+- Microphone monitoring/mixing is explicitly deferred: keep the phone microphone and Windows system-audio stream independent.
+- Native Windows virtual playback/capture endpoints remain a future driver-backed milestone. Do not install drivers or change OS defaults; record the default-off, capability-gated proposal.
 - Receiving playback uses unit gain and the Android media-volume keys; microphone gain is retained.
 - Autostart registration happens only after a user toggle, never automatically during app startup or agent verification.
 - Phone hosting and phone-to-phone audio remain future work.

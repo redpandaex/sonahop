@@ -20,7 +20,7 @@ export function useWorkbench() {
   const [prefs, setPrefs] = useState(initialPreferences);
   const [info, setInfo] = useState<AppInfo>({
     platform: platformHint(),
-    version: "0.1.0",
+    version: "0.2.0",
     uiPreview: true,
     browserPreview: !nativeLinkAvailable(),
   });

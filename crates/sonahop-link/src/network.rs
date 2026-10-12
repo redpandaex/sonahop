@@ -317,11 +317,11 @@ async fn accept_connections(
         let task_inner = inner.clone();
         let task_cancel = cancel.clone();
         spawn(&inner, generation, async move {
-            tokio::select! {
-                _ = cancelled(task_cancel) => {},
-                _ = host_session(task_inner.clone(), generation, &id, &name, pin, address, stream, outbound) => {},
-            }
-            finish_connection(&task_inner, generation, &id, None);
+            let result = tokio::select! {
+                _ = cancelled(task_cancel) => Ok(()),
+                result = host_session(task_inner.clone(), generation, &id, &name, pin, address, stream, outbound) => result,
+            };
+            finish_connection(&task_inner, generation, &id, result.err());
         });
     }
 }
@@ -533,7 +533,7 @@ async fn host_session(
         id,
         &mut reader,
         &mut writer,
-        &mut secure,
+        secure,
         &mut outbound,
     )
     .await
@@ -671,7 +671,7 @@ async fn client_session(
         id,
         &mut reader,
         &mut writer,
-        &mut secure,
+        secure,
         &mut outbound,
     )
     .await
@@ -690,81 +690,168 @@ fn display_reason(reason: &str) -> String {
     }
 }
 
+#[derive(Default)]
+struct SessionStats {
+    session_tag: String,
+    tx: std::sync::atomic::AtomicU64,
+    rx: std::sync::atomic::AtomicU64,
+    tx_media: std::sync::atomic::AtomicU64,
+    rx_media: std::sync::atomic::AtomicU64,
+    stale: std::sync::atomic::AtomicU64,
+    max_write_ms: std::sync::atomic::AtomicU64,
+}
+impl SessionStats {
+    fn fields(&self, id: &str) -> serde_json::Value {
+        use std::sync::atomic::Ordering::Relaxed;
+        serde_json::json!({"sessionTag":self.session_tag,"peerId":id,"sentFrames":self.tx.load(Relaxed),"receivedFrames":self.rx.load(Relaxed),"sentMedia":self.tx_media.load(Relaxed),"receivedMedia":self.rx_media.load(Relaxed),"staleMediaDropped":self.stale.load(Relaxed),"maxWriteMs":self.max_write_ms.load(Relaxed)})
+    }
+}
 async fn connected<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     inner: &Inner,
     generation: u64,
     id: &str,
     reader: &mut FrameReader<R>,
     writer: &mut W,
-    secure: &mut crate::crypto::SecureChannel,
+    secure: crate::crypto::SecureChannel,
     outbound: &mut Outbound,
 ) -> Result<(), String> {
+    let session_tag = secure.session_tag();
+    let (mut sender, mut receiver) = secure.into_split();
+    let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<Payload>(4);
+    let stats = SessionStats {
+        session_tag,
+        ..SessionStats::default()
+    };
+    inner.diagnostics.log("session-start",serde_json::json!({"sessionTag":stats.session_tag,"peerId":id,"writeTimeoutMs":2000,"heartbeatTimeoutMs":20000,"mediaQueueFrames":3}));
+    // Separate futures: a blocked write cannot stop reading TCP/heartbeats.
+    let result = tokio::select! {
+        result=receive_loop(inner,generation,id,reader,&mut receiver,reply_tx,&stats)=>result,
+        result=send_loop(inner,id,writer,&mut sender,outbound,&mut reply_rx,&stats)=>result,
+    };
+    inner.diagnostics.log(
+        "session-end",
+        serde_json::json!({"statistics":stats.fields(id),"reason":result.as_ref().err()}),
+    );
+    result
+}
+async fn send_packet<W: AsyncWrite + Unpin>(
+    inner: &Inner,
+    id: &str,
+    writer: &mut W,
+    cipher: &mut crate::crypto::DirectionalCipher,
+    payload: &Payload,
+    stats: &SessionStats,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let kind = match payload {
+        Payload::Media { .. } => "media",
+        Payload::Control { .. } => "control",
+        Payload::Ping => "ping",
+        Payload::Pong => "pong",
+        Payload::Bye => "bye",
+        _ => "other",
+    };
+    let frame = cipher.seal(payload)?;
+    let bytes = protocol::bounded_json(&frame, 4096)?.len() + 4;
+    let began = Instant::now();
+    let result = protocol::write(writer, &frame).await;
+    let elapsed = began.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    stats.max_write_ms.fetch_max(elapsed, Relaxed);
+    if let Err(error) = &result {
+        inner.diagnostics.log("write-failed",serde_json::json!({"peerId":id,"frameType":kind,"wireBytes":bytes,"elapsedMs":elapsed,"reason":error}));
+    } else {
+        stats.tx.fetch_add(1, Relaxed);
+        if kind == "media" {
+            stats.tx_media.fetch_add(1, Relaxed);
+        }
+        if elapsed > 120 {
+            inner.diagnostics.log(
+                "write-slow",
+                serde_json::json!({"peerId":id,"frameType":kind,"elapsedMs":elapsed}),
+            );
+        }
+    }
+    result
+}
+async fn send_loop<W: AsyncWrite + Unpin>(
+    inner: &Inner,
+    id: &str,
+    writer: &mut W,
+    cipher: &mut crate::crypto::DirectionalCipher,
+    outbound: &mut Outbound,
+    replies: &mut tokio::sync::mpsc::Receiver<Payload>,
+    stats: &SessionStats,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering::Relaxed;
     let mut heartbeat = interval(Duration::from_secs(3));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            command=outbound.commands.recv()=>match command {
+                Some(Command::Disconnect)|None=>{let _=send_packet(inner,id,writer,cipher,&Payload::Bye,stats).await;return Ok(());},
+                Some(Command::Answer(_))=>{},
+            },
+            reply=replies.recv()=>{let Some(reply)=reply else{return Ok(());};send_packet(inner,id,writer,cipher,&reply,stats).await?;},
+            _=heartbeat.tick()=>send_packet(inner,id,writer,cipher,&Payload::Ping,stats).await?,
+            control=outbound.controls.recv()=>{let Some(payload)=control else{return Ok(());};send_packet(inner,id,writer,cipher,&Payload::Control {payload},stats).await?;},
+            frame=outbound.media.recv()=>{
+                let Some(frame)=frame else{return Ok(());};
+                // Discard before sealing; nonce counters never skip a transmitted frame.
+                if frame.queued_at.elapsed()>Duration::from_millis(120){stats.stale.fetch_add(1,Relaxed);continue;}
+                send_packet(inner,id,writer,cipher,&Payload::Media {payload:crate::crypto::encode(&frame.payload)},stats).await?;
+            },
+        }
+    }
+}
+async fn receive_loop<R: AsyncRead + Unpin>(
+    inner: &Inner,
+    generation: u64,
+    id: &str,
+    reader: &mut FrameReader<R>,
+    cipher: &mut crate::crypto::DirectionalCipher,
+    replies: tokio::sync::mpsc::Sender<Payload>,
+    stats: &SessionStats,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering::Relaxed;
     let mut last_received = Instant::now();
     let mut last_pong = None::<Instant>;
     let mut rate_window = Instant::now();
     let (mut controls, mut media, mut heartbeats) = (0_u16, 0_u16, 0_u16);
+    let mut report = interval(Duration::from_secs(5));
+    report.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            biased;
-            _ = sleep_until(tokio::time::Instant::from_std(last_received + Duration::from_secs(12))) => {
-                return Err("控制连接心跳超时".into());
-            }
-            command = outbound.commands.recv() => match command {
-                Some(Command::Disconnect) | None => {
-                    let _ = encrypted_write(writer, secure, &Payload::Bye).await; return Ok(());
-                }
-                Some(Command::Answer(_)) => {},
+            _=sleep_until(tokio::time::Instant::from_std(last_received+Duration::from_secs(20)))=>{
+                inner.diagnostics.log("heartbeat-timeout",serde_json::json!({"peerId":id,"lastReceiveAgeMs":last_received.elapsed().as_millis(),"statistics":stats.fields(id)}));return Err("控制连接超过 20 秒未收到数据，请检查网络".into());
             },
-            _ = heartbeat.tick() => encrypted_write(writer, secure, &Payload::Ping).await?,
-            control = outbound.controls.recv() => {
-                let Some(payload) = control else { return Ok(()); };
-                encrypted_write(writer, secure, &Payload::Control { payload }).await?;
-            }
-            frame = reader.read() => {
-                let payload = secure.open(frame?)?;
-                if rate_window.elapsed() >= Duration::from_secs(1) {
-                    rate_window = Instant::now(); controls = 0; media = 0; heartbeats = 0;
-                }
-                if last_received.elapsed() >= Duration::from_millis(250) { last_received = Instant::now(); }
+            _=report.tick()=>inner.diagnostics.log("session-statistics",stats.fields(id)),
+            frame=reader.read()=>{
+                let payload=cipher.open(frame?)?;last_received=Instant::now();stats.rx.fetch_add(1,Relaxed);
+                if rate_window.elapsed()>=Duration::from_secs(1){rate_window=Instant::now();controls=0;media=0;heartbeats=0;}
                 match payload {
-                    Payload::Ping => {
-                        heartbeats += 1;
-                        if heartbeats > 16 { return Err("心跳消息发送过于频繁".into()); }
-                        if last_pong.is_none_or(|sent| sent.elapsed() >= Duration::from_millis(500)) {
-                            encrypted_write(writer, secure, &Payload::Pong).await?; last_pong = Some(Instant::now());
-                        }
-                    }
-                    Payload::Pong => {
-                        heartbeats += 1;
-                        if heartbeats > 16 { return Err("心跳消息发送过于频繁".into()); }
-                    }
-                    Payload::Bye => return Ok(()),
-                    Payload::Control { payload } => {
-                        controls += 1;
-                        if controls > 32 { return Err("控制消息发送过于频繁".into()); }
+                    Payload::Ping=>{
+                        heartbeats+=1;if heartbeats>16{return Err("心跳消息发送过于频繁".into());}
+                        if last_pong.is_none_or(|sent|sent.elapsed()>=Duration::from_millis(500)){let _=replies.try_send(Payload::Pong);last_pong=Some(Instant::now());}
+                    },
+                    Payload::Pong=>{heartbeats+=1;if heartbeats>16{return Err("心跳消息发送过于频繁".into());}},
+                    Payload::Bye=>return Ok(()),
+                    Payload::Control {payload}=>{
+                        controls+=1;if controls>32{return Err("控制消息发送过于频繁".into());}
                         protocol::validate_control(&payload)?;
-                        publish_payload(inner, generation, id, LinkEvent::Control { peer_id: id.to_owned(), payload });
-                    }
-                    Payload::Media { payload } => {
-                        media += 1;
-                        if media > 128 { return Err("音频包发送过于频繁".into()); }
-                        let payload = crate::crypto::decode(&payload, MAX_MEDIA_BYTES)?;
-                        if payload.is_empty() { return Err("音频包为空".into()); }
-                        publish_payload(inner, generation, id, LinkEvent::Media { peer_id: id.to_owned(), payload });
-                    }
-                    _ => return Err("非预期加密消息".into()),
+                        publish_payload(inner,generation,id,LinkEvent::Control {peer_id:id.to_owned(),payload});
+                    },
+                    Payload::Media {payload}=>{
+                        media+=1;if media>128{return Err("音频包发送过于频繁".into());}
+                        let payload=crate::crypto::decode(&payload,MAX_MEDIA_BYTES)?;if payload.is_empty(){return Err("音频包为空".into());}
+                        stats.rx_media.fetch_add(1,Relaxed);publish_payload(inner,generation,id,LinkEvent::Media {peer_id:id.to_owned(),payload});
+                    },
+                    _=>return Err("非预期加密消息".into()),
                 }
-            }
-            frame = outbound.media.recv() => {
-                let Some(payload) = frame else { return Ok(()); };
-                encrypted_write(writer, secure, &Payload::Media { payload: crate::crypto::encode(&payload) }).await?;
-            }
+            },
         }
     }
 }
-
 fn configure_socket(stream: &TcpStream) -> Result<(), String> {
     stream
         .set_nodelay(true)

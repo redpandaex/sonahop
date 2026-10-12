@@ -9,6 +9,7 @@ export interface LaneSnapshot {
   sentPackets: number;
   receivedPackets: number;
   droppedPackets: number;
+  peakLevel: number;
 }
 export interface AudioSnapshot {
   listen: LaneSnapshot;

@@ -237,6 +237,19 @@ fn capture_loop(
                 .drain(..frame_samples)
                 .map(|s| (s * gain).clamp(-1.0, 1.0))
                 .collect();
+            let peak = frame
+                .iter()
+                .map(|sample| sample.abs())
+                .fold(0.0_f32, f32::max)
+                .clamp(0.0, 1.0);
+            {
+                let mut state = shared.lock();
+                if state.lane(kind).epoch != epoch {
+                    return Ok(());
+                }
+                let lane = state.lane_mut(kind);
+                lane.peak_level = (lane.peak_level * 0.9).max(peak);
+            }
             let packet = encoder.encode(&frame)?;
             for peer in peers {
                 let delivered = shared.link.send_media(&peer, packet.clone()).is_ok();
@@ -391,11 +404,18 @@ fn playback_loop(
                 vec![0.0; FRAME_SAMPLES * kind.channels()]
             }
         };
+        let peak = pcm
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max)
+            .clamp(0.0, 1.0);
         let gain = {
-            let state = shared.lock();
+            let mut state = shared.lock();
             if state.lane(kind).epoch != epoch {
                 return Ok(());
             }
+            let lane = state.lane_mut(kind);
+            lane.peak_level = (lane.peak_level * 0.9).max(peak);
             1.0
         };
         if !sink.write(&to_stereo(&pcm, kind, gain))? {

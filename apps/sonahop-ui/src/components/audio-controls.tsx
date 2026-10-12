@@ -1,4 +1,3 @@
-import { AppAudioChoice } from "./app-audio-choice";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -169,8 +168,7 @@ function DeviceChoice({
   );
 }
 function InputDevices({ workbench: w, disabled }: { workbench: Workbench; disabled: boolean }) {
-  if (w.info.platform !== "windows")
-    return <p className="field-help">使用这台设备的麦克风。只在你主动开始并授权后采集。</p>;
+  if (w.info.platform !== "windows") return null;
   return (
     <>
       <div className="control-title">
@@ -239,32 +237,14 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
     : w.prefs.sendSource;
   const microphone = source === "microphone";
   const unsupported = !microphone && !w.info.systemCaptureSupported;
-  const needsApp =
-    !microphone &&
-    w.info.platform === "android" &&
-    w.prefs.captureScope === "app" &&
-    !w.prefs.capturePackageName;
   const disabled = busy(w);
   return (
     <section className="panel source-panel">
       <div className="panel-heading">
-        <h2>共享音源</h2>
+        <h2>音源</h2>
         <StatusBadge label={audioStatusLabel(w, "listen")} />
       </div>
-      <div className="source-identity">
-        <span className="device-symbol">
-          {microphone ? (
-            <MicrophoneIcon size={28} weight="bold" />
-          ) : (
-            <SpeakerHighIcon size={28} weight="bold" />
-          )}
-        </span>
-        <div>
-          <h3>{microphone ? "本机麦克风" : "本机内部声音"}</h3>
-          <p>一台共享设备，最多两个收听设备。</p>
-        </div>
-      </div>
-      <label className="field-label" htmlFor="send-source">
+      <label className="sr-only" htmlFor="send-source">
         音频来源
       </label>
       <Select
@@ -284,7 +264,8 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
               value="system"
               disabled={!w.info.systemCaptureSupported}
             >
-              内部播放声音{!w.info.systemCaptureSupported ? " · 当前不可用" : ""}
+              {w.info.platform === "android" ? "应用声音" : "系统声音"}
+              {!w.info.systemCaptureSupported ? " · 不可用" : ""}
             </SelectItem>
             <SelectItem
               className="device-select-item"
@@ -297,35 +278,20 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           </SelectGroup>
         </SelectContent>
       </Select>
-      {started && <p className="field-help">共享期间音源已锁定，停止共享后可以更换。</p>}
-      {!microphone && w.info.platform === "android" && (
-        <AppAudioChoice workbench={w} disabled={disabled || started} />
-      )}
       {microphone ? (
         <>
           <InputDevices workbench={w} disabled={disabled || started} />
           <VolumeControl workbench={w} microphone />
         </>
-      ) : (
-        <p className="field-help">
-          {unsupported
-            ? w.info.browserPreview
-              ? "浏览器无法读取内部声音采集能力。"
-              : "当前平台暂不支持内部声音采集，请选择本机麦克风。"
-            : w.info.platform === "android"
-              ? "开始共享时需要系统音频捕获授权；部分应用可能不允许被采集。"
-              : "采集系统进程音频，独立于本地扬声器音量，不改变系统输出设备。"}
-        </p>
-      )}
+      ) : unsupported ? (
+        <p className="field-help capability-note">当前设备不支持系统声音采集。</p>
+      ) : null}
       <Button
         className={started ? "secondary-button" : "primary-button"}
         disabled={
           disabled ||
           (!started &&
-            (!w.link.snapshot?.running ||
-              unsupported ||
-              needsApp ||
-              (microphone && !inputAvailable(w))))
+            (!w.link.snapshot?.running || unsupported || (microphone && !inputAvailable(w))))
         }
         onClick={() =>
           void (started
@@ -334,19 +300,12 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
                 source,
                 inputDeviceId: w.prefs.inputDeviceId || undefined,
                 gain: w.prefs.volume,
-                packageName:
-                  w.info.platform === "android" && w.prefs.captureScope === "app"
-                    ? w.prefs.capturePackageName
-                    : undefined,
               }))
         }
       >
         {w.audio.busy ? "处理中…" : started ? "停止共享" : "开始共享"}
         <ArrowRightIcon size={18} weight="bold" />
       </Button>
-      {!w.link.snapshot?.running && (
-        <p className="field-help">正在准备发现服务，准备完成后可开始共享。</p>
-      )}
       {w.audio.snapshot?.listen.lastError && (
         <ErrorMessage message={w.audio.snapshot.listen.lastError} />
       )}
@@ -405,15 +364,9 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         </span>
         <div>
           <h3>{microphone ? "本机麦克风" : "本设备扬声器 / 耳机"}</h3>
-          <p>
-            {microphone
-              ? "共享设备批准后才开始采集。"
-              : w.audio.snapshot?.remoteSource === "microphone"
-                ? "正在接收共享设备的麦克风音源。"
-                : w.audio.snapshot?.remoteSource === "system"
-                  ? "正在接收共享设备的内部声音音源。"
-                  : "连接并开始收听后显示远端音源。"}
-          </p>
+          {!microphone && started && w.audio.snapshot?.remoteSource && (
+            <p>{w.audio.snapshot.remoteSource === "microphone" ? "麦克风声音" : "应用声音"}</p>
+          )}
         </div>
       </div>
       {microphone ? (
@@ -434,9 +387,6 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
                 disabled={disabled || started || w.loading}
                 onChange={(outputDeviceId) => w.update({ outputDeviceId })}
               />
-              <p className="field-help">
-                只选择 SonaHop 的播放出口，不更改 Windows 默认设备。停止收听后可以更换。
-              </p>
               {!validOutput && (
                 <p className="field-help capability-note">
                   已保存的播放设备不在当前列表中，请重新选择。
@@ -447,9 +397,6 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           )}
           <VolumeControl workbench={w} />
         </>
-      )}
-      {!microphoneAllowed && (
-        <p className="field-help">当前共享设备不接收远端麦克风，此设备可以收听它共享的音源。</p>
       )}
       <div className="mobile-primary">
         <Button
@@ -481,15 +428,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
                 : "开始收听"}
           <ArrowRightIcon size={18} weight="bold" />
         </Button>
-        <p>
-          {lane?.waiting
-            ? microphone
-              ? "请在共享设备上批准申请；等待期间不采集麦克风。"
-              : "等待共享设备主动开始共享。"
-            : microphone
-              ? "这台收听设备一次只运行一个音频方向，上传会停止本机收听。"
-              : "可收听 Windows 或 Android 共享设备，播放音量由本设备系统控制。"}
-        </p>
+        {lane?.waiting && <p>{microphone ? "等待对方批准" : "等待对方开始共享"}</p>}
       </div>
       {lane?.lastError && <ErrorMessage message={lane.lastError} />}
       <AudioDiagnostics workbench={w} lane={laneName} />
@@ -558,13 +497,7 @@ export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }
           </SelectGroup>
         </SelectContent>
       </Select>
-      <p className="field-help">
-        需要先安装虚拟音频线。选择它的播放端（如 CABLE
-        Input），电脑会议应用再选择对应录音端；不要选择扬声器或耳机。
-      </p>
-      {activeMic && (
-        <p className="field-help">当前麦克风正在使用后台确认的入口；停止后可以重新选择。</p>
-      )}
+      <p className="field-help">选择虚拟音频线播放端（如 CABLE Input），电脑应用使用对应录音端。</p>
       {w.deviceError && <ErrorMessage message={w.deviceError} />}
     </div>
   );
@@ -584,10 +517,6 @@ export function RemoteMicrophonePanel({ workbench: w }: { workbench: Workbench }
         <h2>接收远端麦克风</h2>
         <StatusBadge label={audioStatusLabel(w, "microphone")} />
       </div>
-      <p className="field-help">
-        Windows
-        共享设备可以接收一台收听设备上传的麦克风，同时继续共享本机音源。此入口供会议等应用使用。
-      </p>
       <VirtualOutputSelector workbench={w} />
       {requests.map((request) => (
         <div className="lan-device" key={request.requestId}>

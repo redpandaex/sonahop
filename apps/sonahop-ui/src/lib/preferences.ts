@@ -12,8 +12,6 @@ export interface Preferences {
   computerAddress: string;
   connectionRole: ConnectionRole | null;
   sendSource: SendSource;
-  captureScope: "app" | "all";
-  capturePackageName: string;
   inputDeviceId: string;
   outputDeviceId: string;
 }
@@ -28,8 +26,6 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
   computerAddress: "",
   connectionRole: null,
   sendSource: "system",
-  captureScope: "app",
-  capturePackageName: "",
   inputDeviceId: "",
   outputDeviceId: "",
 });
@@ -60,8 +56,6 @@ export function readPreferences(raw: string | null): Preferences {
           ? data.connectionRole
           : null,
       sendSource: data.sendSource === "microphone" ? "microphone" : "system",
-      captureScope: data.captureScope === "all" ? "all" : "app",
-      capturePackageName: text(data.capturePackageName, "", 255),
       inputDeviceId: text(data.inputDeviceId, "", 512),
       outputDeviceId: text(data.outputDeviceId, "", 512),
     };

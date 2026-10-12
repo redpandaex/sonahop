@@ -11,7 +11,6 @@ import {
   DeviceTabletIcon,
   WifiHighIcon,
   WarningCircleIcon,
-  InfoIcon,
 } from "@phosphor-icons/react";
 import type { AudioMode } from "../lib/preferences";
 import type { Workbench } from "../lib/use-workbench";
@@ -29,13 +28,7 @@ export function Brand({ small = false }: { small?: boolean }) {
   );
 }
 export function PreviewNotice({ browser }: { browser: boolean }) {
-  if (!browser)
-    return (
-      <p className="setup-note" role="note">
-        <InfoIcon size={15} aria-hidden />
-        发现自动开启，连接确认后再开始共享或收听。
-      </p>
-    );
+  if (!browser) return null;
   return (
     <div className="preview-notice" id="preview-notice">
       <span className="preview-label">预览</span>
@@ -132,16 +125,7 @@ export function VolumeControl({
   microphone?: boolean;
 }) {
   const { prefs, update } = workbench;
-  if (!microphone)
-    return (
-      <section className="system-volume-note" aria-label="系统媒体音量">
-        <SpeakerHighIcon size={23} weight="bold" aria-hidden />
-        <div>
-          <h3>使用设备音量键调节</h3>
-          <p>播放音量由本设备的系统媒体音量控制，SonaHop 使用固定单位播放增益。</p>
-        </div>
-      </section>
-    );
+  if (!microphone) return null;
   return (
     <section className="volume-control" aria-labelledby="volume-title">
       <div className="control-title">

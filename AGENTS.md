@@ -25,7 +25,7 @@
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/plans/2026-10-12-discovery-ui.md for the current discovery/UI stage; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
+- Follow docs/superpowers/plans/2026-10-12-ui-refinement.md for the current UI/system-consent stage; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
 - The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
 - Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
 - Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
@@ -50,3 +50,5 @@
 - Windows microphone capture requires an available recording endpoint; no device means a disabled input choice and a clear explanation. Do not create virtual devices or install drivers.
 
 - The owner authorized automatic local-network discovery on app startup and after role changes, removal of normal network toggles, shared-device IPv4 display, Android single-app audio selection and shared/listen/settings bottom navigation. Pairing and audio still require user action. TUN is not a confirmed cause; do not alter system VPN, routes or firewall. Microphone squeal remains deferred.
+
+- Latest UI feedback supersedes the earlier Android app-selector design: remove custom capture-scope/app lists, UID filters, package-query command and preferences entirely, using Android's normal consent and app-selection flow. Do not claim that system screen selection guarantees additional audio UID isolation. Keep all local addresses after the owner withdrew WLAN-only filtering. Simplify visible explanations, improve dark contrast, and keep desktop scrolling inside the main content area. The owner confirmed Windows/Android discovery works in 0.4.0; preserve that network implementation.

@@ -13,14 +13,3 @@ pub struct AudioCapabilities {
     pub playback_capture: bool,
     pub microphone_capture: bool,
 }
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CaptureApp {
-    pub package_name: String,
-    pub label: String,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CaptureApps {
-    pub apps: Vec<CaptureApp>,
-}

@@ -25,7 +25,7 @@ export function useWorkbench() {
   const [prefs, setPrefs] = useState(initialPreferences);
   const [info, setInfo] = useState<AppInfo>({
     platform: platformHint(),
-    version: "0.4.0",
+    version: "0.4.1",
     uiPreview: true,
     browserPreview: !nativeLinkAvailable(),
     systemCaptureSupported: false,
@@ -214,7 +214,7 @@ export function useWorkbench() {
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", dark ? "#171b19" : "#f7f6f3");
+      ?.setAttribute("content", dark ? "#0f141c" : "#f5f7fb");
     void setDesktopTheme(theme, info.platform).catch(() => {});
   }, [dark, theme, info.platform]);
   const navigate = (next: "workspace" | "settings") => {

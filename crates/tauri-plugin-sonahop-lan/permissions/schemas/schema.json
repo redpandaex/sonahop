@@ -307,18 +307,6 @@
           "markdownDescription": "Denies the ensure_permission command without any pre-configured scope."
         },
         {
-          "description": "Enables the list_capture_apps command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-list-capture-apps",
-          "markdownDescription": "Enables the list_capture_apps command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the list_capture_apps command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-list-capture-apps",
-          "markdownDescription": "Denies the list_capture_apps command without any pre-configured scope."
-        },
-        {
           "description": "Enables the prepare_audio command without any pre-configured scope.",
           "type": "string",
           "const": "allow-prepare-audio",
@@ -331,10 +319,10 @@
           "markdownDescription": "Denies the prepare_audio command without any pre-configured scope."
         },
         {
-          "description": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`\n- `allow-list-capture-apps`",
+          "description": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`\n- `allow-list-capture-apps`"
+          "markdownDescription": "Allow explicit local-network and audio preparation requests, including one-time playback capture consent.\n#### This default permission set includes:\n\n- `allow-ensure-permission`\n- `allow-prepare-audio`"
         }
       ]
     }

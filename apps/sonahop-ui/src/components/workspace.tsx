@@ -39,6 +39,7 @@ export function RoleNavigation({
             w.page !== "settings" && w.role === role ? "role-choice selected" : "role-choice"
           }
           aria-pressed={w.page !== "settings" && w.role === role}
+          title={w.role !== role ? "切换会结束当前连接" : undefined}
           disabled={disabled}
           onClick={() => {
             if (w.role === role && w.roleReady) w.navigate("workspace");
@@ -140,7 +141,7 @@ function SavedServer({ workbench: w }: { workbench: Workbench }) {
       {saved && (
         <p className="saved-message" role="status">
           <CheckCircleIcon size={15} weight="bold" />
-          已保存到本机，保存信息不会发起连接。
+          已保存
         </p>
       )}
     </section>
@@ -153,9 +154,7 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
     <div className="workspace-content shared-workspace">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{host ? "SHARE AUDIO" : "LISTEN HERE"}</p>
           <h1>{host ? "共享声音" : "收听声音"}</h1>
-          <p>{host ? "选择声音来源，让其它设备收听。" : "发现共享设备，在这里播放它的声音。"}</p>
         </div>
         <span className="mode-symbol">
           {host ? (
@@ -165,7 +164,6 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
           )}
         </span>
       </div>
-      <p className="role-change-note">切换共享 / 收听会结束当前音频和连接；打开设置不停止会话。</p>
       {w.roleBusy && (
         <p className="role-state-note" role="status">
           正在停止旧会话并切换连接角色…
@@ -173,7 +171,7 @@ export function WorkspaceScreen({ workbench: w }: { workbench: Workbench }) {
       )}
       {!w.roleReady && !w.roleBusy && !w.roleError && w.link.native && (
         <p className="role-state-note" role="status">
-          正在准备连接角色；尚未开启发现或音频。
+          正在准备连接…
         </p>
       )}
       {w.roleError && (

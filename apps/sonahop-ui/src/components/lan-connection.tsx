@@ -18,7 +18,7 @@ export function linkStatusLabel(w: Workbench): string {
       : "已连接 · 音频已停止";
   if (snapshot.clientState === "awaitingApproval") return "等待共享设备确认";
   if (snapshot.clientState === "connecting") return "正在连接";
-  if (snapshot.running) return snapshot.role === "host" ? "允许局域网发现" : "正在搜索共享设备";
+  if (snapshot.running) return snapshot.role === "host" ? "可被发现" : "正在搜索";
   return "局域网连接已关闭";
 }
 
@@ -36,9 +36,6 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       <div className="lan-service-row">
         <div>
           <h3>{snapshot?.localName || "这台设备"}</h3>
-          <p>
-            {running ? "发现已自动开启，可在其它设备的收听页找到这里。" : "正在自动准备局域网发现…"}
-          </p>
         </div>
         {!running && !w.roleBusy && (
           <Button
@@ -52,7 +49,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       </div>
       {snapshot?.localAddresses?.length ? (
         <div className="lan-addresses">
-          <h3 className="lan-group-heading">手动连接地址</h3>
+          <h3 className="lan-group-heading">连接地址</h3>
           {snapshot.localAddresses.map((ip) => (
             <div className="lan-address-row" key={ip}>
               <code className="mono">
@@ -84,15 +81,15 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
           )}
         </div>
       ) : (
-        running && <p className="field-help">正在读取可连接的局域网地址…</p>
+        running && <p className="field-help">未检测到可用地址</p>
       )}
       {snapshot?.role === "host" && snapshot.running && snapshot.pairingCode && (
         <div className="lan-confirmation">
-          <h3>收听设备连接 PIN</h3>
+          <h3>连接 PIN</h3>
           <output className="lan-code" aria-label="收听设备连接 PIN">
             {snapshot.pairingCode}
           </output>
-          <p>在收听设备输入此六位 PIN 后才能发起有效请求；重新打开应用或切换共享模式会更新 PIN。</p>
+          <p>在收听设备输入此 PIN。</p>
         </div>
       )}
       {error && <ErrorMessage message={error} />}
@@ -100,9 +97,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
       {snapshot && snapshot.requests.length > 0 && (
         <div className="lan-group">
           <h3 className="lan-group-heading">待确认请求</h3>
-          <p className="lan-note">
-            连接 PIN 已由后台验证；核对收听设备上的请求编号和名称后，再接受请求。
-          </p>
+          <p className="lan-note">核对设备名称和编号后接受。</p>
           {snapshot.requests.map((request) => (
             <div className="lan-device" key={request.id}>
               <div className="lan-device-identity">
@@ -148,7 +143,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
                 </div>
               </div>
               <div className="lan-device-footer">
-                <span className="quiet-tag">控制已连接</span>
+                <span className="quiet-tag">已连接</span>
                 <Button
                   className="secondary-button"
                   disabled={disabled}
@@ -160,12 +155,9 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
             </div>
           ))
         ) : (
-          <p className="lan-empty">
-            {running ? "在收听设备搜索并发起连接，请求会显示在这里。" : "尚无已连接设备。"}
-          </p>
+          <p className="lan-empty">暂无连接</p>
         )}
       </div>
-      <p className="lan-note">最多连接两台设备；收听或麦克风需在音频区单独启动。</p>
     </section>
   );
 }
@@ -187,13 +179,6 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
         <StatusBadge label={linkStatusLabel(w)} />
       </div>
       <div className="lan-service-row">
-        <p>
-          {pending
-            ? "等待对方确认连接。"
-            : connected
-              ? "发现继续运行，打开设置不停止当前连接。"
-              : "自动寻找同一局域网里的共享设备。"}
-        </p>
         {pending ? (
           <Button
             className="secondary-button"
@@ -257,7 +242,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
         <>
           <div className="lan-pin-field">
             <label className="field-label" htmlFor="connection-pin">
-              共享设备显示的连接 PIN
+              对方的连接 PIN
             </label>
             <Input
               id="connection-pin"
@@ -271,9 +256,6 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
                 setPairingCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))
               }
             />
-            <p className="field-help">
-              输入共享设备连接区显示的六位 PIN，再选择共享设备或填写地址。PIN 不保存到本机。
-            </p>
           </div>
           <div className="lan-group">
             <h3 className="lan-group-heading">发现的共享设备</h3>
@@ -299,11 +281,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
                 </div>
               ))
             ) : (
-              <p className="lan-empty">
-                {snapshot?.running
-                  ? "正在搜索…也可以手动填写共享设备地址。"
-                  : "搜索结果会显示在这里。"}
-              </p>
+              <p className="lan-empty">{snapshot?.running ? "正在搜索…" : "暂无设备"}</p>
             )}
           </div>
           <form
@@ -338,7 +316,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               aria-describedby="lan-address-help"
             />
             <p id="lan-address-help" className="field-help">
-              可只填 IPv4，默认端口 32993。填写地址不会自动连接。
+              端口默认 32993。
             </p>
             {addressError && <ErrorMessage message={addressError} />}
             <div className="lan-actions">
@@ -365,7 +343,6 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
           </form>
         </>
       )}
-      <p className="lan-note">连接后可单独开始收听或申请麦克风；切换设置页不停止连接和音频。</p>
     </section>
   );
 }

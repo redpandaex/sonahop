@@ -25,7 +25,7 @@ export async function getAppInfo(): Promise<AppInfo> {
   if (!isTauri())
     return {
       platform: platformHint(),
-      version: "0.4.0",
+      version: "0.4.1",
       uiPreview: true,
       browserPreview: true,
       systemCaptureSupported: false,

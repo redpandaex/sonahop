@@ -16,7 +16,6 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
         <RoleNavigation workbench={w} vertical />
         <div className="sidebar-bottom">
           <span className="version-label">SONAHOP / {w.info.version}</span>
-          <p>本地网络 · 跨设备音频</p>
           <span className="sidebar-platform">
             <MonitorIcon size={14} weight="bold" />
             {w.info.browserPreview ? "浏览器布局预览" : "Windows"}
@@ -43,7 +42,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
             <span className="status-dot" />
             {audioStatusLabel(w)}
           </span>
-          <span>{w.saved ? "偏好已保存到本机" : "设置未保存，下次打开可能恢复默认"}</span>
+          {!w.saved && <span>设置未保存</span>}
           {w.page === "settings" &&
             w.audio.snapshot &&
             (w.audio.snapshot.active || w.audio.snapshot.waiting) && (

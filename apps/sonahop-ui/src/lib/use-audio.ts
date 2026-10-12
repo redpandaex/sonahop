@@ -126,7 +126,6 @@ export function useAudio(platform: Platform, appReady: boolean) {
               ? "microphone"
               : "playback"
             : "listen",
-          options.packageName,
         );
         if (snapshot.role === "host" && source === "microphone" && options.gain !== undefined)
           await setAudioGain(options.gain);

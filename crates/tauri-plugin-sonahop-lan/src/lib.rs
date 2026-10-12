@@ -40,7 +40,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             commands::ensure_permission,
             commands::prepare_audio,
-            commands::list_capture_apps
         ])
         .setup(|app, api| {
             #[cfg(target_os = "android")]

@@ -12,21 +12,22 @@
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  color: #232923;
-  background: #f7f6f3;
-  --canvas: #f7f6f3;
+  color: #192638;
+  background: #f5f7fb;
+  --canvas: #f5f7fb;
   --surface: #ffffff;
-  --soft: #f6f7f4;
-  --ink: #232923;
-  --text-muted: #697169;
-  --faint: #939a91;
-  --border: oklch(0.922 0 0);
-  --green: #346538;
-  --green-soft: #edf3ec;
+  --soft: #edf2f8;
+  --ink: #192638;
+  --text-muted: #526176;
+  --faint: #67768b;
+  --border: #d0dae7;
+  --green: #1d4ed8;
+  --green-soft: #e8f0ff;
+  --on-accent: #ffffff;
   --notice: #fbf3db;
   --notice-ink: #7a642f;
-  --danger: #9f2f2d;
-  --danger-soft: #fdebec;
+  --danger: #a82d35;
+  --danger-soft: #fdebed;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -60,19 +61,21 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 :root[data-theme="dark"] {
-  --canvas: #171b19;
-  --surface: #202623;
-  --soft: #282f2b;
-  --ink: #edf1eb;
-  --text-muted: #a7b1a8;
-  --faint: #7c887f;
-  --border: #343d36;
-  --green: #a0c2a1;
-  --green-soft: #2a3b2c;
-  --notice: #302c22;
-  --notice-ink: #d1c096;
-  --danger: #edb6b1;
-  --danger-soft: #402d2c;
+  --canvas: #0f141c;
+  --surface: #1b2432;
+  --soft: #253348;
+  --ink: #f4f7fc;
+  --text-muted: #c0ccdd;
+  --faint: #96a8c1;
+  --border: #40536e;
+  --input: #627a99;
+  --green: #8abdff;
+  --green-soft: #263f63;
+  --on-accent: #0e203c;
+  --notice: #3b301c;
+  --notice-ink: #f2d38d;
+  --danger: #ffb4b4;
+  --danger-soft: #4a2230;
 }
 * {
   box-sizing: border-box;
@@ -234,7 +237,9 @@ p {
 .desktop-app {
   display: grid;
   grid-template-columns: 205px minmax(0, 1fr);
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 .sidebar {
   padding: 29px 18px 20px;
@@ -242,9 +247,9 @@ p {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100dvh;
+  position: relative;
+  height: 100%;
+  min-height: 0;
 }
 .sidebar .brand {
   padding-left: 5px;
@@ -353,7 +358,11 @@ p {
   padding: 0 30px;
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 .desktop-header {
   height: 62px;
@@ -717,8 +726,8 @@ p {
   white-space: nowrap;
 }
 .primary-button {
-  color: var(--surface);
-  background: var(--ink);
+  color: var(--on-accent);
+  background: var(--green);
 }
 .primary-button:not(:disabled):hover {
   opacity: 0.84;
@@ -1330,8 +1339,8 @@ p {
   --card-foreground: var(--ink);
   --popover: var(--surface);
   --popover-foreground: var(--ink);
-  --primary: var(--ink);
-  --primary-foreground: var(--surface);
+  --primary: var(--green);
+  --primary-foreground: var(--on-accent);
   --secondary: var(--soft);
   --secondary-foreground: var(--ink);
   --muted: var(--soft);
@@ -1339,7 +1348,6 @@ p {
   --accent: var(--green-soft);
   --accent-foreground: var(--green);
   --destructive: var(--danger);
-  --border: #eaeaea;
   --input: var(--border);
   --ring: var(--green);
 }
@@ -2093,7 +2101,49 @@ html {
   font-size: 28px;
 }
 
-.app-audio-choice {
-  display: grid;
+/* The desktop content owns scrolling; popup scroll locks leave this gutter in place. */
+.desktop-header,
+.desktop-footer {
+  flex-shrink: 0;
+}
+.desktop-main .workspace-content {
+  padding-top: 4px;
+}
+.desktop-header {
+  height: 38px;
+  margin-bottom: 10px;
+}
+.desktop-footer {
+  padding: 14px 0 4px;
+}
+.shared-workspace .page-heading {
+  margin-bottom: 16px;
+}
+.shared-workspace .mode-symbol {
+  display: none;
+}
+.mobile-app .page-heading {
+  margin-top: 8px;
+}
+.role-choice.selected,
+.direction-tab.selected,
+.theme-option.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 45%, transparent);
+}
+.system-volume-note {
+  padding: 8px 0;
+}
+.system-volume-note h3 {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mobile-primary:has(> p) {
   gap: 10px;
+}
+.browser-preview-tools ~ .desktop-app {
+  height: calc(100dvh - 33px);
+}
+
+.lan-service-row:empty {
+  display: none;
 }

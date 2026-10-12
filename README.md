@@ -14,8 +14,8 @@
 
 同时更新电脑及两台 Android：
 
-- `artifacts/audio-direction-tabs/sonahop-windows.exe`
-- `artifacts/audio-direction-tabs/sonahop-android-arm64-debug.apk`
+- `artifacts/ui-polish/sonahop-windows.exe`
+- `artifacts/ui-polish/sonahop-android-arm64-debug.apk`
 
 旧 audio-mvp / ui-preview 包保留为历史版本。最新包包含 Android 前台状态和 Windows 采集参数重复释放的修复，以及独立音频方向和 Windows 自启设置。
 

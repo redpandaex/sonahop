@@ -11,6 +11,7 @@ import {
   DeviceTabletIcon,
   WifiHighIcon,
   WarningCircleIcon,
+  InfoIcon,
 } from "@phosphor-icons/react";
 import type { AudioMode } from "../lib/preferences";
 import type { Workbench } from "../lib/use-workbench";
@@ -28,15 +29,17 @@ export function Brand({ small = false }: { small?: boolean }) {
   );
 }
 export function PreviewNotice({ browser }: { browser: boolean }) {
+  if (!browser)
+    return (
+      <p className="setup-note" role="note">
+        <InfoIcon size={15} aria-hidden />
+        连接设备后，再开启音频。使用手机麦克风需电脑批准。
+      </p>
+    );
   return (
     <div className="preview-notice" id="preview-notice">
-      <span className="preview-label">首版</span>
-      <span>
-        {browser
-          ? "浏览器仅供布局与偏好预览，连接与音频需使用原生应用。"
-          : "同一局域网内连接电脑与移动设备，再主动开始音频。"}{" "}
-        控制连接成功不代表正在收听，麦克风需电脑另行批准。
-      </span>
+      <span className="preview-label">预览</span>
+      <span>浏览器仅供布局与偏好预览，连接和音频需使用原生应用。</span>
     </div>
   );
 }

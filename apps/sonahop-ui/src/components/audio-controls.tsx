@@ -1,10 +1,13 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRightIcon,
-  CaretDownIcon,
-  ArrowClockwiseIcon,
-  MicrophoneIcon,
-} from "@phosphor-icons/react";
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ArrowRightIcon, ArrowClockwiseIcon, MicrophoneIcon } from "@phosphor-icons/react";
 import { ErrorMessage, StatusBadge } from "./controls";
 import type { Workbench } from "../lib/use-workbench";
 
@@ -72,28 +75,40 @@ export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }
           <ArrowClockwiseIcon size={18} weight="bold" className={w.loading ? "refreshing" : ""} />
         </Button>
       </div>
-      <div className="select-wrap">
-        <select
+      <Select
+        value={value || "__sonahop_no_output__"}
+        disabled={w.loading || w.audio.busy || Boolean(activeMic) || w.info.browserPreview}
+        onValueChange={(selected) =>
+          w.setMicOutputDeviceId(selected === "__sonahop_no_output__" ? "" : selected)
+        }
+      >
+        <SelectTrigger
           id="microphone-output"
-          value={value}
-          disabled={w.loading || w.audio.busy || Boolean(activeMic) || w.info.browserPreview}
-          onChange={(event) => w.setMicOutputDeviceId(event.currentTarget.value)}
+          className="device-select-trigger"
+          aria-label="虚拟音频线播放入口"
+          title={w.devices.find((device) => device.id === value)?.name}
         >
-          <option value="">请明确选择已安装的虚拟音频线入口</option>
-          {value && !w.devices.some((device) => device.id === value) && (
-            <option value={value} disabled>
-              所选设备当前不可用
-            </option>
-          )}
-          {w.devices.map((device) => (
-            <option key={device.id} value={device.id}>
-              {device.name}
-              {device.isDefault ? " · 系统默认" : ""}
-            </option>
-          ))}
-        </select>
-        <CaretDownIcon size={16} weight="bold" aria-hidden />
-      </div>
+          <SelectValue placeholder="请选择虚拟音频线播放入口" />
+        </SelectTrigger>
+        <SelectContent position="popper" align="start" className="device-select-content">
+          <SelectGroup>
+            <SelectItem className="device-select-item" value="__sonahop_no_output__">
+              请选择虚拟音频线播放入口
+            </SelectItem>
+            {value && !w.devices.some((device) => device.id === value) && (
+              <SelectItem className="device-select-item" value={value} disabled>
+                所选设备当前不可用
+              </SelectItem>
+            )}
+            {w.devices.map((device) => (
+              <SelectItem className="device-select-item" key={device.id} value={device.id}>
+                {device.name}
+                {device.isDefault ? " · 系统默认" : ""}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
       <p className="field-help">
         需要先安装虚拟音频线。选择它的播放端（如 CABLE
         Input），电脑会议应用再选择对应录音端；不要选择扬声器或耳机。

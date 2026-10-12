@@ -12,3 +12,7 @@
 ## Navigation naming
 两端统一显示发送音频 / 接收音频，顺序为发送、接收。Windows 发送对应系统声音共享，接收对应手机麦克风；Android 发送对应本设备麦克风，接收对应电脑声音。页面标题/面包屑与标签一致，说明文字注明当前实际音源，避免让服务器/播放器名称混同连接监听角色。此命名修改不改变音频方向状态、既有偏好或启停规则。
 命名版本构建：Windows release、Android ARM64 debug 与前端生产构建成功，APK 签名检查退出 0；未运行界面或设备测试。产物 artifacts/audio-direction-tabs。
+
+## UI polish
+按用户截图反馈统一 Windows 上下两组卡片：共用等宽两列、间距、内边距和响应式变量。设备下拉选择使用官方 shadcn CLI 生成的 Select，保留明确空选项、设备缺失状态、禁用规则和键盘导航，使用单层焦点边框代替原生控件与外圈叠加；菜单继承亮/暗主题。原生顶部提示改为短说明，浏览器预览继续明确标注。
+UI-only：不更改音频、注册自启、连接/断线策略。前端、Windows release、Android debug 构建成功，APK 签名检查退出 0；未执行界面/设备验证。当前包在 artifacts/ui-polish。

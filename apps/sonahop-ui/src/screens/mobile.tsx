@@ -144,14 +144,15 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
           <>
             <div className="mobile-heading">
               <p className="eyebrow">YOUR AUDIO, HERE</p>
-              <h1>{microphone ? "把麦克风交给电脑" : "让电脑声音来到这里"}</h1>
+              <h1>{microphone ? "发送音频" : "接收音频"}</h1>
               <p>
                 {microphone
-                  ? "使用这台设备的麦克风，为电脑应用提供声音。"
-                  : "收听电脑声音，在这台设备上控制音量。"}
+                  ? "把这台设备的麦克风发送给电脑，批准后开始录音。"
+                  : "接收电脑系统声音，使用这台设备的音量键调节。"}
               </p>
             </div>
             <ModeSwitch
+              senderMode="microphone"
               mode={w.prefs.mode}
               disabled={w.audio.busy || w.link.busy}
               onChange={(mode) => void w.switchMode(mode)}

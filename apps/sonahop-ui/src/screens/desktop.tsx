@@ -24,7 +24,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
     <div className="desktop-app">
       <aside className="sidebar">
         <Brand />
-        <div className="sidebar-section-title">音频功能</div>
+        <div className="sidebar-section-title">音频方向</div>
         <ModeSwitch
           vertical
           mode={w.prefs.mode}
@@ -57,7 +57,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
         <header className="desktop-header">
           <div className="breadcrumb">
             工作区 <span>/</span>{" "}
-            {w.page === "settings" ? "设置" : microphone ? "手机麦克风" : "共享音频"}
+            {w.page === "settings" ? "设置" : microphone ? "接收音频" : "发送音频"}
           </div>
           <StatusBadge label={linkStatusLabel(w)} />
         </header>
@@ -70,11 +70,11 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
             <div className="page-heading">
               <div>
                 <p className="eyebrow">AUDIO WORKSPACE</p>
-                <h1>{microphone ? "手机作为电脑麦克风" : "共享电脑声音"}</h1>
+                <h1>{microphone ? "接收音频" : "发送音频"}</h1>
                 <p>
                   {microphone
-                    ? "手机主动申请，通过你选择的虚拟音频线供电脑应用使用。"
-                    : "采集系统声音，独立于电脑扬声器音量；手机和平板各自控制收听音量。"}
+                    ? "接收手机麦克风，通过你选择的虚拟音频线供电脑应用使用。"
+                    : "把电脑系统声音发送到手机或平板，接收设备使用系统音量键。"}
                 </p>
               </div>
               <span className="mode-symbol">

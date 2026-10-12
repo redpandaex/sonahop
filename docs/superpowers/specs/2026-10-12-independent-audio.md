@@ -9,3 +9,6 @@
 交付：使用 CLI 接入 Tauri 官方 autostart 插件，生成新的 Windows exe / Android APK。只构建和检查包，不启动应用、不设置实际自启、不运行自动/浏览器/设备测试，不采集真实音频。保留用户 .vscode 改动。
 ## Future mobile roles
 本轮仍按 Windows host / Android client 连接。未来把连接监听者/发起者与音频发布者/接收者解耦，通过设备能力声明和 stream id 路由音源到播放端或虚拟麦克风端。现有共享 Rust 编解码、认证传输以及独立 Lane 生命周期可复用；Android host、应用声音的 AudioPlaybackCapture/MediaProjection 与 Windows 本地扬声器接收需要另行实现。当前两个固定 Lane 不代表已经完成任意设备/任意音源的路由。
+## Navigation naming
+两端统一显示发送音频 / 接收音频，顺序为发送、接收。Windows 发送对应系统声音共享，接收对应手机麦克风；Android 发送对应本设备麦克风，接收对应电脑声音。页面标题/面包屑与标签一致，说明文字注明当前实际音源，避免让服务器/播放器名称混同连接监听角色。此命名修改不改变音频方向状态、既有偏好或启停规则。
+命名版本构建：Windows release、Android ARM64 debug 与前端生产构建成功，APK 签名检查退出 0；未运行界面或设备测试。产物 artifacts/audio-direction-tabs。

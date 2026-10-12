@@ -5,6 +5,8 @@ import {
   SpeakerHighIcon,
   MicrophoneIcon,
   ArrowRightIcon,
+  ArrowUpRightIcon,
+  ArrowDownLeftIcon,
   MonitorIcon,
   DeviceTabletIcon,
   WifiHighIcon,
@@ -43,38 +45,37 @@ export function ModeSwitch({
   onChange,
   vertical = false,
   disabled = false,
+  senderMode = "listen",
 }: {
   mode: AudioMode;
   onChange: (mode: AudioMode) => void;
   vertical?: boolean;
   disabled?: boolean;
+  senderMode?: AudioMode;
 }) {
+  const receiverMode: AudioMode = senderMode === "listen" ? "microphone" : "listen";
+  const choices = [
+    { value: senderMode, label: "发送音频", icon: ArrowUpRightIcon },
+    { value: receiverMode, label: "接收音频", icon: ArrowDownLeftIcon },
+  ];
   return (
     <fieldset
       disabled={disabled}
       className={vertical ? "mode-switch mode-vertical" : "mode-switch"}
     >
-      <legend className="sr-only">工作模式</legend>
-      <label className={mode === "listen" ? "mode-choice selected" : "mode-choice"}>
-        <input
-          type="radio"
-          name="audio-mode"
-          checked={mode === "listen"}
-          onChange={() => onChange("listen")}
-        />
-        <SpeakerHighIcon size={20} weight="bold" aria-hidden />
-        <span>收听电脑声音</span>
-      </label>
-      <label className={mode === "microphone" ? "mode-choice selected" : "mode-choice"}>
-        <input
-          type="radio"
-          name="audio-mode"
-          checked={mode === "microphone"}
-          onChange={() => onChange("microphone")}
-        />
-        <MicrophoneIcon size={20} weight="bold" aria-hidden />
-        <span>手机作为麦克风</span>
-      </label>
+      <legend className="sr-only">音频方向</legend>
+      {choices.map(({ value, label, icon: Icon }) => (
+        <label key={value} className={mode === value ? "mode-choice selected" : "mode-choice"}>
+          <input
+            type="radio"
+            name="audio-mode"
+            checked={mode === value}
+            onChange={() => onChange(value)}
+          />
+          <Icon size={20} weight="bold" aria-hidden />
+          <span>{label}</span>
+        </label>
+      ))}
     </fieldset>
   );
 }

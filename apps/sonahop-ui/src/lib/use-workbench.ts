@@ -3,6 +3,10 @@ import { getAppInfo, listPlaybackDevices, platformHint, setDesktopTheme } from "
 import type { AppInfo, PlaybackDevice } from "./bridge";
 import { PREFERENCES_KEY, readPreferences, savePreferences } from "./preferences";
 import type { Preferences } from "./preferences";
+import { useLink } from "./use-link";
+import { useAudio } from "./use-audio";
+import type { AudioMode } from "./preferences";
+import { nativeLinkAvailable } from "./link-bridge";
 
 function initialPreferences() {
   try {
@@ -17,12 +21,16 @@ export function useWorkbench() {
     platform: platformHint(),
     version: "0.1.0",
     uiPreview: true,
-    browserPreview: false,
+    browserPreview: !nativeLinkAvailable(),
   });
   const [devices, setDevices] = useState<PlaybackDevice[]>([]);
   const [loading, setLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const [appError, setAppError] = useState("");
+  const [appReady, setAppReady] = useState(false);
+  const link = useLink(info.platform, appReady);
+  const audio = useAudio(info.platform, appReady);
+  const [micOutputDeviceId, setMicOutputDeviceId] = useState("");
   const [saved, setSaved] = useState(true);
   const [systemDark, setSystemDark] = useState(
     () => matchMedia("(prefers-color-scheme: dark)").matches,
@@ -35,6 +43,37 @@ export function useWorkbench() {
     (value: Partial<Preferences>) => setPrefs((previous) => ({ ...previous, ...value })),
     [],
   );
+  const switchMode = useCallback(
+    async (mode: AudioMode) => {
+      if (mode === prefs.mode) return true;
+      if (audio.available && !(await audio.stop())) return false;
+      update({ mode });
+      return true;
+    },
+    [prefs.mode, audio.available, audio.stop, update],
+  );
+  const stopLink = useCallback(async () => {
+    if (audio.available) await audio.stop();
+    return link.stop();
+  }, [audio.available, audio.stop, link.stop]);
+  const disconnectPeer = useCallback(
+    async (peerId: string) => {
+      if (
+        audio.available &&
+        (info.platform === "android" || audio.snapshot?.micPeerId === peerId)
+      ) {
+        await audio.stop();
+      }
+      return link.disconnect(peerId);
+    },
+    [audio.available, audio.stop, audio.snapshot?.micPeerId, info.platform, link.disconnect],
+  );
+  useEffect(() => {
+    const mode = audio.snapshot?.mode;
+    if (mode && mode !== "idle" && (audio.snapshot?.active || audio.snapshot?.waiting)) {
+      setPrefs((previous) => (previous.mode === mode ? previous : { ...previous, mode }));
+    }
+  }, [audio.snapshot?.mode, audio.snapshot?.active, audio.snapshot?.waiting]);
   const refreshDevices = useCallback(async () => {
     setLoading(true);
     setDeviceError("");
@@ -53,6 +92,7 @@ export function useWorkbench() {
       .then((value) => {
         if (!active) return;
         setInfo(value);
+        setAppReady(true);
         if (value.platform === "windows") void refreshDevices();
       })
       .catch((error) => {
@@ -99,6 +139,13 @@ export function useWorkbench() {
   };
   return {
     prefs,
+    link,
+    audio,
+    switchMode,
+    stopLink,
+    disconnectPeer,
+    micOutputDeviceId,
+    setMicOutputDeviceId,
     update,
     info,
     devices,

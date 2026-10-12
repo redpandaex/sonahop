@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   WaveformIcon,
   SpeakerHighIcon,
@@ -27,10 +28,12 @@ export function Brand({ small = false }: { small?: boolean }) {
 export function PreviewNotice({ browser }: { browser: boolean }) {
   return (
     <div className="preview-notice" id="preview-notice">
-      <span className="preview-label">界面预览</span>
+      <span className="preview-label">首版</span>
       <span>
-        {browser ? "浏览器中的音源为示例。" : "可选择音源和调整设置。"}{" "}
-        当前尚不支持设备搜索、配对或音频传输。
+        {browser
+          ? "浏览器仅供布局与偏好预览，连接与音频需使用原生应用。"
+          : "同一局域网内连接电脑与移动设备，再主动开始音频。"}{" "}
+        控制连接成功不代表正在收听，麦克风需电脑另行批准。
       </span>
     </div>
   );
@@ -39,13 +42,18 @@ export function ModeSwitch({
   mode,
   onChange,
   vertical = false,
+  disabled = false,
 }: {
   mode: AudioMode;
   onChange: (mode: AudioMode) => void;
   vertical?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <fieldset className={vertical ? "mode-switch mode-vertical" : "mode-switch"}>
+    <fieldset
+      disabled={disabled}
+      className={vertical ? "mode-switch mode-vertical" : "mode-switch"}
+    >
       <legend className="sr-only">工作模式</legend>
       <label className={mode === "listen" ? "mode-choice selected" : "mode-choice"}>
         <input
@@ -129,7 +137,7 @@ export function VolumeControl({
           ) : (
             <SpeakerHighIcon size={20} weight="bold" aria-hidden />
           )}
-          <h3 id="volume-title">{microphone ? "麦克风增益偏好" : "本设备播放音量"}</h3>
+          <h3 id="volume-title">{microphone ? "麦克风增益" : "本设备播放音量"}</h3>
         </div>
         <output htmlFor="device-volume" className="volume-number">
           {prefs.volume}
@@ -143,19 +151,42 @@ export function VolumeControl({
         min="0"
         max="100"
         step="1"
-        aria-label={microphone ? "麦克风增益偏好" : "本设备播放音量"}
+        aria-label={microphone ? "麦克风增益" : "本设备播放音量"}
         value={prefs.volume}
+        disabled={workbench.audio.busy}
         onChange={(event) => update({ volume: event.currentTarget.valueAsNumber })}
+        onPointerUp={(event) => {
+          if (workbench.audio.available)
+            void workbench.audio.setGain(event.currentTarget.valueAsNumber);
+        }}
+        onKeyUp={(event) => {
+          if (workbench.audio.available)
+            void workbench.audio.setGain(event.currentTarget.valueAsNumber);
+        }}
       />
       <div className="range-labels">
         <span>静音</span>
         <span>100%</span>
       </div>
       <p className="control-help">
-        {microphone
-          ? "保存增益偏好；本版不会启动麦克风。"
-          : "独立控制接收音量。本版保存设置，音频接入后生效。"}
+        {workbench.info.browserPreview
+          ? "浏览器只保存音量偏好。"
+          : microphone
+            ? "调整本设备麦克风增益；录音只在申请获得批准后启动。"
+            : "调整这台设备的接收音量，不改变电脑扬声器或另一台设备的音量。"}
+        {workbench.audio.snapshot && !workbench.info.browserPreview && (
+          <> 当前生效：{workbench.audio.snapshot.gain}%。</>
+        )}
       </p>
+      {workbench.audio.available && (
+        <Button
+          className="secondary-button volume-apply"
+          disabled={workbench.audio.busy || !workbench.audio.snapshot}
+          onClick={() => void workbench.audio.setGain(prefs.volume)}
+        >
+          应用音量
+        </Button>
+      )}
     </section>
   );
 }

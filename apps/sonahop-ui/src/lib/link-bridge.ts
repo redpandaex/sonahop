@@ -1,0 +1,67 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { Platform } from "./bridge";
+
+export interface DiscoveredHost {
+  id: string;
+  name: string;
+  address: string;
+  port: number;
+}
+export interface LinkRequest {
+  id: string;
+  name: string;
+  address: string;
+  verificationCode: string;
+}
+export interface LinkPeer {
+  id: string;
+  name: string;
+  address: string;
+}
+export interface LinkSnapshot {
+  role: "host" | "client";
+  running: boolean;
+  localName: string;
+  port: number;
+  discovered: DiscoveredHost[];
+  requests: LinkRequest[];
+  peers: LinkPeer[];
+  clientState: "idle" | "discovering" | "connecting" | "awaitingApproval" | "connected";
+  verificationCode: string | null;
+  pairingCode: string | null;
+  lastError: string | null;
+}
+export const nativeLinkAvailable = () => isTauri();
+export const getLinkSnapshot = () => invoke<LinkSnapshot>("get_link_snapshot");
+export const startLink = (name: string) => invoke<LinkSnapshot>("start_link", { name });
+export const stopLink = () => invoke<void>("stop_link");
+export const connectLink = (address: string, port: number, pairingCode: string) =>
+  invoke<void>("connect_link", { address, port, pairingCode });
+export const answerLinkRequest = (requestId: string, approve: boolean) =>
+  invoke<void>("answer_link_request", { requestId, approve });
+export const disconnectLinkPeer = (peerId: string) =>
+  invoke<void>("disconnect_link_peer", { peerId });
+
+export async function ensureNetworkAccess(platform: Platform): Promise<string> {
+  if (platform !== "android") return "";
+  const permission = await invoke<{ granted: boolean; deviceName: string }>(
+    "plugin:sonahop-lan|ensure_permission",
+  );
+  if (!permission.granted) {
+    throw new Error(
+      "局域网访问未获授权。请在设备设置中允许 SonaHop 访问本地网络，再重试搜索或连接。",
+    );
+  }
+  return permission.deviceName;
+}
+
+export function parseLinkAddress(value: string): { address: string; port: number } {
+  const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(value.trim());
+  if (!match) throw new Error("请输入 IPv4 地址，可附端口，例如 192.168.1.10:32993。");
+  const octets = match[1].split(".").map(Number);
+  const port = match[2] ? Number(match[2]) : 32993;
+  if (octets.some((part) => part > 255) || port < 1 || port > 65535) {
+    throw new Error("IPv4 地址或端口无效，端口范围为 1–65535。");
+  }
+  return { address: octets.join("."), port };
+}

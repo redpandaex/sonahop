@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/sonahop-cli","crates/sonahop-core", "crates/sonahop-platform-windows", "apps/sonahop-ui/src-tauri"]
+members = ["apps/sonahop-cli","crates/sonahop-core", "crates/sonahop-platform-windows", "apps/sonahop-ui/src-tauri", "crates/sonahop-link", "crates/tauri-plugin-sonahop-lan", "crates/sonahop-audio"]
 resolver = "3"
 
 [workspace.package]

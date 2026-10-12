@@ -25,14 +25,15 @@
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/specs/2026-10-10-desktop-android-ui-design.md and the matching stage plan.
-- Deliver native Windows and Android UI previews before network audio. Windows device enumeration is real; browser examples must stay explicitly labeled.
-- Save preferences locally. Do not claim connection, playback, microphone permission, remote gain or independent audio has been implemented.
-- Windows offers light/dark/system appearance; Android follows its system theme.
-- The owner reports Windows and Y700 both launch successfully. Discovery, connection and audio are not implemented yet; no further GUI startup verification is needed now.
-- Keep PC-mute-independent receiving volume as the next audio stage acceptance requirement.
-- Local WAV capture remains an explicit diagnostic operation. Ask before recording real system audio; synthetic tests and output-device enumeration are allowed.
+- Follow docs/superpowers/specs/2026-10-12-audio-mvp.md and the matching plan. Earlier UI and protocol-v1 LAN documents are historical stages.
+- The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
+- Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
+- Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
+- Windows process loopback is the streaming source; the existing endpoint WAV CLI remains diagnostic. Android alone supplies microphone input; do not change system volume/output route, install drivers or modify firewall.
+- No automatic microphone restart. Connection, approval, user audio start, hardware initialization, error and stop states must be real.
+- Virtual audio render sink selection is explicit and uses user-installed software; never auto-select a physical speaker.
+- The latest overnight request authorizes final exe/APK packaging so the owner can test tomorrow. Compile/package and repair compilation errors; do not run automated tests, launch apps, or interact with audio/devices. Earlier user-run-only build guidance applies to intermediate verification, not this final delivery.
 ## Frontend tooling
 - Use Biome for formatting/lint and Tailwind CSS 4 with the Vite plugin for styles. shadcn/ui Radix components live in apps/sonahop-ui/src/components/ui.
 - Use the official shadcn CLI to add components; keep the current data-theme light/dark/system behavior and native palette.
-- The owner runs tests and interactive validation personally. After a reviewable change, provide concise verification steps and wait for feedback; do not launch test/build/device verification automatically.
+- The owner runs tests and interactive validation personally. Final packaging is authorized by the latest overnight request; do not launch tests, apps or device/audio verification automatically. Provide concise manual acceptance steps with the built artifacts.

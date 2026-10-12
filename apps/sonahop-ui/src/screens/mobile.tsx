@@ -6,7 +6,6 @@ import {
   MonitorIcon,
   CaretRightIcon,
   CheckCircleIcon,
-  ArrowRightIcon,
   MicrophoneIcon,
   SpeakerHighIcon,
   HouseIcon,
@@ -23,6 +22,8 @@ import {
 } from "../components/controls";
 import type { Workbench } from "../lib/use-workbench";
 import { SettingsScreen } from "./settings";
+import { ClientLinkPanel } from "../components/lan-connection";
+import { MobileAudioAction, audioStatusLabel } from "../components/audio-controls";
 
 function ComputerCard({ workbench: w }: { workbench: Workbench }) {
   const [editing, setEditing] = useState(false);
@@ -34,7 +35,7 @@ function ComputerCard({ workbench: w }: { workbench: Workbench }) {
     <section className="panel computer-panel">
       <div className="panel-heading">
         <h2>电脑信息</h2>
-        <StatusBadge label={hasAddress ? "未连接" : "未添加"} />
+        <StatusBadge label={hasAddress ? "本地偏好" : "未添加"} />
       </div>
       {editing ? (
         <form
@@ -43,7 +44,7 @@ function ComputerCard({ workbench: w }: { workbench: Workbench }) {
             event.preventDefault();
             w.update({ computerName: name.trim() || "我的电脑", computerAddress: address.trim() });
             setEditing(false);
-            setMessage("电脑信息已保存，当前版本尚不能连接。");
+            setMessage("已更新电脑信息；保存地址不会建立连接。");
           }}
         >
           <label className="field-label" htmlFor="computer-name">
@@ -87,7 +88,7 @@ function ComputerCard({ workbench: w }: { workbench: Workbench }) {
             <div>
               <h3>{hasAddress ? w.prefs.computerName : "添加你的 Windows 电脑"}</h3>
               <p className={hasAddress ? "mono" : ""}>
-                {hasAddress ? w.prefs.computerAddress : "当前仅保存地址，尚不能搜索或连接"}
+                {hasAddress ? w.prefs.computerAddress : "保存电脑信息后，可在下方手动连接"}
               </p>
             </div>
             <Button
@@ -150,10 +151,15 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
                   : "收听电脑声音，在这台设备上控制音量。"}
               </p>
             </div>
-            <ModeSwitch mode={w.prefs.mode} onChange={(mode) => w.update({ mode })} />
+            <ModeSwitch
+              mode={w.prefs.mode}
+              disabled={w.audio.busy || w.link.busy}
+              onChange={(mode) => void w.switchMode(mode)}
+            />
             <div className="mobile-panels">
               <div>
                 <ComputerCard workbench={w} />
+                <ClientLinkPanel workbench={w} />
                 <section className="panel mobile-flow-panel">
                   <RouteDiagram mode={w.prefs.mode} mobile />
                   <p>
@@ -166,7 +172,7 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
               <section className="panel playback-panel">
                 <div className="panel-heading">
                   <h2>{microphone ? "麦克风设置" : "播放控制"}</h2>
-                  <span className="quiet-tag">{microphone ? "未启用" : "独立音量"}</span>
+                  <span className="quiet-tag">{audioStatusLabel(w)}</span>
                 </div>
                 <div className="playback-identity">
                   <span className="playback-icon">
@@ -178,21 +184,11 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
                   </span>
                   <div>
                     <h3>{microphone ? "本设备麦克风" : "本设备扬声器 / 耳机"}</h3>
-                    <p>{microphone ? "当前不会采集声音" : "音频输出尚未启动"}</p>
+                    <p>{audioStatusLabel(w)}</p>
                   </div>
                 </div>
                 <VolumeControl workbench={w} microphone={microphone} />
-                <div className="mobile-primary">
-                  <Button className="primary-button" disabled aria-describedby="preview-notice">
-                    {microphone ? "开始使用麦克风" : "连接并收听"}
-                    <ArrowRightIcon size={18} weight="bold" />
-                  </Button>
-                  <p>
-                    {microphone
-                      ? "录音只会在你主动开始后启动。"
-                      : "当前版本为界面预览，尚不能连接电脑。"}
-                  </p>
-                </div>
+                <MobileAudioAction workbench={w} />
               </section>
             </div>
           </>

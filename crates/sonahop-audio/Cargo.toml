@@ -1,0 +1,10 @@
+[package]
+name = "sonahop-audio"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+
+[dependencies]
+audiopus_sys = { version = "0.2.2", features = ["static"] }
+opus = "0.3"
+uuid = { version = "1", features = ["v4"] }

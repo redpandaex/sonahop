@@ -27,7 +27,7 @@ pub fn get_app_info() -> UiAppInfo {
             "other"
         },
         version: env!("CARGO_PKG_VERSION"),
-        ui_preview: true,
+        ui_preview: false,
     }
 }
 

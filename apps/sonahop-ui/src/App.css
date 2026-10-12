@@ -1339,3 +1339,197 @@ p {
   --input: var(--border);
   --ring: var(--green);
 }
+/* LAN control connections share the existing native-app palette. */
+.lan-service-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 21px 0 16px;
+}
+.lan-service-row > div {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.lan-service-row h3,
+.lan-device h3,
+.lan-confirmation h3,
+.lan-group-heading {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.lan-service-row p,
+.lan-device p,
+.lan-note,
+.lan-empty,
+.lan-confirmation p {
+  font-size: 11px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.lan-service-row p {
+  margin-top: 5px;
+}
+.lan-group {
+  padding-top: 17px;
+  margin-top: 17px;
+  border-top: 1px solid var(--border);
+}
+.lan-group-heading {
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 9px;
+}
+.lan-device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.lan-device:last-child {
+  border-bottom: 0;
+}
+.lan-device-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.lan-device-identity > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.lan-device-identity > div {
+  min-width: 0;
+}
+.lan-device-identity p {
+  margin-top: 3px;
+}
+.lan-device-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+}
+.lan-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.lan-code {
+  font-variant-numeric: tabular-nums;
+  font-size: 23px;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.lan-note {
+  margin-top: 11px;
+  color: var(--text-muted);
+}
+.lan-empty {
+  padding: 9px 0;
+  color: var(--text-muted);
+}
+.client-lan-panel {
+  margin-top: 15px;
+}
+.client-lan-panel .panel-heading {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.client-lan-panel .lan-service-row > p {
+  flex: 1 1 160px;
+}
+.lan-confirmation {
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.lan-confirmation .lan-code {
+  display: block;
+  margin: 12px 0;
+  font-size: 30px;
+}
+.lan-manual-form {
+  border-top: 1px solid var(--border);
+  margin-top: 15px;
+  padding-top: 19px;
+}
+.lan-manual-form .lan-actions {
+  margin-top: 13px;
+}
+.mobile-app .lan-service-row p,
+.mobile-app .lan-device p,
+.mobile-app .lan-note,
+.mobile-app .lan-empty,
+.mobile-app .lan-confirmation p,
+.mobile-app .lan-manual-form .field-help {
+  font-size: 12px;
+}
+.mobile-app .lan-manual-form input {
+  min-height: 48px;
+  font-size: 14px;
+}
+.lan-pin-field {
+  margin-top: 19px;
+}
+.lan-pin-field input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+}
+.microphone-requests {
+  margin-top: 20px;
+}
+.microphone-requests .virtual-device-field {
+  margin-top: 16px;
+}
+.audio-diagnostics {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 14px 0 0;
+}
+.audio-diagnostics b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.mobile-primary > .status-badge {
+  margin-bottom: 13px;
+}
+.mobile-primary > .secondary-button {
+  width: 100%;
+}
+.mobile-primary .audio-diagnostics {
+  justify-content: center;
+}
+.volume-apply {
+  margin-top: 12px;
+}
+.system-audio-source .inactive-field {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mode-switch:disabled {
+  opacity: 0.65;
+}
+.mobile-app .lan-pin-field input {
+  min-height: 48px;
+  font-size: 16px;
+}
+.source-panel .panel-heading {
+  flex-wrap: wrap;
+  gap: 10px;
+}

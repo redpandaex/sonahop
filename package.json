@@ -23,7 +23,10 @@
     "format:check": "pnpm --filter sonahop-ui format:check",
     "lint": "pnpm --filter sonahop-ui lint",
     "check": "pnpm --filter sonahop-ui check",
-    "check:fix": "pnpm --filter sonahop-ui check:fix"
+    "check:fix": "pnpm --filter sonahop-ui check:fix",
+    "mvp:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Both",
+    "mvp:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Windows",
+    "mvp:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Android"
   },
   "private": true
 }

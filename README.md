@@ -2,87 +2,71 @@
 
 以 Rust 为核心、Tauri 提供 Windows / Android 界面的跨设备音频项目。
 
-## 现在怎么使用
+## 当前交付状态
 
-本地已经构建好的 Windows 界面可直接运行：
+首版音频源码已经接入：局域网发现、输入连接码、电脑批准、加密传输、Windows 系统声音采集、Android 收听与后台麦克风、Windows 既有虚拟音频设备输出、独立手机增益和真实状态界面。
 
-```powershell
-.\target\release\sonahop-ui.exe
-```
+**本次已生成当前 Windows release exe 和 Android ARM64 debug APK，前端、双端 Rust 与 Android Java/Kotlin 编译通过；未运行自动测试、启动应用、播放/录音或真机验证。** 请使用 `artifacts/audio-mvp` 新产物，同时更新两端；`artifacts/ui-preview` 仍是旧界面版本，旧协议客户端不能连接新版本。
 
-也可以在文件管理器中双击 `target/release/sonahop-ui.exe`。
-Android 安装包位于 `artifacts/ui-preview/sonahop-android-debug.apk`，复制到手机或平板后安装即可。
-这是 ARM64 调试版，约 19 MB；用户已在 Windows 和 Y700 上打开界面；设备搜索、连接与音频仍未接入。
+范围为 Windows 11 和 Android 16。收听最多两台设备；麦克风一次一台，并暂停全部收听。完整双工、自带驱动、专用 USB 音频、Linux/macOS/iOS 后续实施。
 
-**当前是界面预览。** Windows 可以选择和刷新真实播放设备、切换收听/麦克风模式和主题。
-Android 提供电脑信息编辑、模式切换、音量偏好和设置页，手机与平板分别适配；外观跟随系统。
-设置保存在各自设备本地。共享、连接和启动麦克风按钮尚未开放，调整滑块只保存偏好。
-网络音频传输、独立音量的实际音频路径、手机麦克风服务仍待下一阶段实现。
+## 当前真机修复包
 
-## 首版目标
+首次用户测试发现两个问题，已分别修正并编译：Android 前台状态误判，以及 Windows 系统采集参数被重复释放导致 0xc0000374 退出。
 
-Windows 11 ↔ Android 16，两种方向分别运行：
+现阶段复测请使用 `artifacts/audio-mvp/sonahop-windows-heap-fix.exe` 和 `sonahop-android-foreground-fix.apk`。关掉旧 Windows 程序，重新开启联网/配对，再验证共享。修复根因和构建证据在对应的 2026-10-12 Superpowers 修复记录中；尚未由 agent 运行音频或真机复测。
 
-- 收听模式：两台 Android 同时收听电脑的系统播放声音，接收设备独立控制音量，电脑静音时仍能收听。
-- 麦克风模式：一台选定的 Android 采集麦克风并发送给电脑，通过已有 Windows 虚拟音频设备供应用使用；此时暂停收听。
+## 构建当前版本
 
-Windows loopback 是电脑→手机的发送端，读取电脑正在播放的声音；手机→电脑会在 Android 端采集麦克风。
-已有 CLI 保存 WAV 是诊断采集端的方式，不是网络传输格式。
+本机需要 JDK 21、SDK platform 37、NDK `30.0.16248370`、Visual Studio C++ 与 CMake/Ninja，以及 Rust Android target `aarch64-linux-android`。
 
-## 开发界面
-
-本轮环境为 Rust 1.99 / MSVC、Node 24.21、pnpm 11.25.0、Visual Studio C++ 工具链和 WebView2。
-在仓库根目录运行：
+仓库根目录运行：
 
 ```powershell
 pnpm install --frozen-lockfile
-pnpm dev
+pnpm mvp:build
 ```
 
-`pnpm dev` 启动 Windows Tauri 窗口。仅查看浏览器布局时运行：
+单独构建可用 `pnpm mvp:windows` 或 `pnpm mvp:android`。如果当前终端没有 Android 环境变量，本机对应位置为：
 
 ```powershell
-pnpm web:dev
+$env:JAVA_HOME = 'D:\ProgramFiles\java\jdk-21.0.12.1+1'
+$env:ANDROID_HOME = 'D:\Android\Sdk'
+$env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
+pnpm mvp:build
 ```
 
-打开 `http://localhost:1420/?platform=windows` 或 `http://localhost:1420/?platform=android`。
-浏览器音源明确标注为示例；原生 Windows 窗口通过 Rust 枚举真实设备，读取失败会显示错误。
+脚本只在调用时构建，不启动应用、播放或录音。它从 Cargo 的锁定依赖取得 Opus 源码，分别构建 Windows / ARM64 Android 静态库，然后使用 Tauri CLI 构建应用。只修改该脚本进程环境；结束时还原环境变量。
 
-## 构建 Windows 与 Android
+构建成功后产物：
 
-```powershell
-pnpm desktop:build
-```
+- `artifacts/audio-mvp/sonahop-windows.exe`
+- `artifacts/audio-mvp/sonahop-android-arm64-debug.apk`
 
-Windows 产物是 `target/release/sonahop-ui.exe`，资源已嵌入程序，运行时不需要启动开发服务器。
+Android 脚本先由 Tauri 生成当前原生插件依赖并编译 Rust。只有明确的 Windows 符号链接权限错误且 Rust 已成功完成时，才复制当前 `.so` 后调用 Gradle 打包；其他编译错误直接停止。不会复用一次失败编译留下的旧预览包。构建日志位于 `artifacts/audio-mvp/android-build.log`。本轮脚本已成功执行；最后构建日志见 `artifacts/audio-mvp/final-build.log`，Android 完整日志见上述文件。
 
-Android 构建需要 JDK 21、Android SDK platform 37、NDK `30.0.16248370` 和 Rust target `aarch64-linux-android`。
-设置 `JAVA_HOME`、`ANDROID_HOME`、`NDK_HOME` 后运行：
+## 明早先这样测试
 
-```powershell
-pnpm android:build
-```
+1. 电脑和 Y700 连接同一个 Wi-Fi / 局域网，启动刚构建的两端。Windows 点击开启局域网；如 Windows 弹出防火墙授权，允许专用网络。不会由应用自动修改防火墙。
+2. Android 点击搜索，填写电脑显示的六位连接码后连接；Windows 核对设备名称和双方显示的验证码后批准。找不到时填电脑实际 LAN IPv4 地址；端口为 TCP `32993`，发现使用 UDP `32992`，不需要重启应用。
+3. Windows 点击开始共享；Android 点击开始收听。电脑播放歌曲，检查 Android 是否听到，并调节手机音量。再把电脑本地扬声器静音，检查手机声音仍继续。
+4. 在第二台 Android 重复连接、批准、收听；分别改变两台设备增益，检查互不影响。停止一台，另一台应继续；断开最后一台时应释放电脑采集。
+5. 麦克风测试前准备已经安装的虚拟音频线。Android 切换麦克风并主动申请、允许录音；Windows 选择虚拟线的播放入口（例如 CABLE Input）并批准。电脑录音/会议软件选择对应录音出口，检查手机说话是否进入软件；两台设备收听此时应暂停。
+6. 检查手机锁屏/切换其他应用后的持续播放或录音，以及停止按钮、通知栏停止、断开网络后的硬件释放。Android 麦克风不得自动重新启动；重新连接后需再次主动申请。
 
-产物在 `apps/sonahop-ui/src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk`。
-Android 工程已由 Tauri CLI 初始化；新工作区通常无需重复 `android:init`。
-原生调试符号保留在 Cargo target，Gradle 会从安装包中移除这些符号，APK 仍保留调试属性。
+若列表只有显示器和 Realtek 物理设备，表示当前没有可选的虚拟音频入口；先完成电脑→手机，再准备麦克风测试。项目不会安装驱动，也不会自动选择物理扬声器作为麦克风路径。
 
-Tauri CLI 在 Windows 上打包需要创建符号链接。本机未开启开发者模式，标准命令在 Rust 编译成功后因符号链接权限而停止。
-本轮保留系统设置，复制刚编译的库并用 Gradle 打包。如果**唯一错误是上述符号链接权限**，可在根目录采用相同步骤：
+## 音频路径
 
-```powershell
-$androidProject = 'apps\sonahop-ui\src-tauri\gen\android'
-$nativeLibrary = 'target\aarch64-linux-android\debug\libsonahop_ui_lib.so'
-$jniDirectory = Join-Path $androidProject 'app\src\main\jniLibs\arm64-v8a'
-New-Item -ItemType Directory -Path $jniDirectory -Force | Out-Null
-Copy-Item -LiteralPath $nativeLibrary -Destination (Join-Path $jniDirectory 'libsonahop_ui_lib.so')
-& (Join-Path $androidProject 'gradlew.bat') -p $androidProject :app:clean :app:assembleArm64Debug -x :app:rustBuildArm64Debug --console=plain
-```
+电脑→手机使用 Windows 进程级系统声音捕获，排除 SonaHop 本身；与原 CLI 的端点 loopback 诊断路径分开。Android 使用 AudioTrack 播放，手机增益在 Rust 解码后应用，不修改电脑音量。
 
-这些步骤要求前一步已成功编译**当前源码**；不要用旧库代替失败的 Rust 编译。
-若设置了 `CARGO_TARGET_DIR`，`$nativeLibrary` 应使用该目录下的相同目标路径。
-后续希望直接使用标准 CLI，可按 [Windows 官方开发者模式说明](https://learn.microsoft.com/windows/apps/get-started/enable-your-device-for-development)自行配置。
-安装已经提供的 APK 不需要修改电脑的开发者模式。
+手机→电脑使用 Android AudioRecord（mono 48 kHz PCM16）与原生 foreground service，经 JNI 交给 Rust Opus 编码后传输；电脑解码并写入用户指定的现有虚拟音频 render 端点。
+
+传输采用固定 Opus / 48 kHz / 20 ms：收听 stereo 96 kbps、麦克风 mono 48 kbps。SPAKE2 协商密钥，AES-GCM 加密控制和媒体；还需电脑明确批准。媒体发送/接收队列最多三帧、TCP 缓冲区有界、写入超时断开；当前先使用 TCP，后续可根据真机网络结果优化传输。界面显示包数和丢弃数；不宣称尚未测量的实际端到端延迟。
+
+## 开发界面
+
+正常开发仍可使用 `pnpm dev`，需要 CMake 在 PATH 或配置本机的 `OPUS_LIB_DIR` 静态库安装根目录。仅浏览器布局运行 `pnpm web:dev`，打开 `http://localhost:1420/?platform=windows` 或 `?platform=android`；浏览器不能调用原生连接或音频。
 
 ## 采集诊断 CLI
 
@@ -128,9 +112,9 @@ pnpm dlx shadcn@latest add dialog -c apps/sonahop-ui
 Biome 配置位于 apps/sonahop-ui/biome.json，启用 Tailwind 指令解析，不处理 Rust/Android 生成工程。
 前端扩展推荐包含 Biome 和 Tailwind CSS IntelliSense；用户根目录的 VS Code 设置保持现有内容。
 
-按用户选择，工具链接入后尚未运行测试、构建或交互验证。用户先运行 `pnpm check`、`pnpm build`，再运行 `pnpm web:dev`。
+本轮为交付安装包运行了前端生产构建（包含 tsc）、Windows release 与 Android debug 构建，并核对 APK 签名/权限/JNI 符号。没有运行自动测试、应用、浏览器交互或真机验证；额外静态规则检查可由用户运行 `pnpm check`。
 浏览器打开 Windows / Android 预览链接，检查两种主题、模式切换、电脑信息编辑和音量滑块。
-现有 exe/APK 是此前构建的图标修正版；本次组件工具改动尚未重新打包。
+旧 ui-preview APK 仅包含此前图标修正版；直接安装本轮 audio-mvp 产物，修改源码后再使用 mvp 构建脚本。
 ## 检查与结构
 
 ```powershell

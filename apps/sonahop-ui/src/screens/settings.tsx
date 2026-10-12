@@ -72,7 +72,7 @@ export function SettingsScreen({
         <div className="setting-row">
           <div>
             <h3>接收设备独立音量</h3>
-            <p>音量偏好保存在这台设备上，音频链路接入后生效。</p>
+            <p>接收音量只作用于这台设备，不改变电脑或其它收听设备的音量。</p>
           </div>
           <span className="quiet-tag">已选定</span>
         </div>
@@ -102,7 +102,7 @@ export function SettingsScreen({
         </div>
         <div className="about-row">
           <span>版本</span>
-          <span className="mono">{w.info.version} · 界面预览</span>
+          <span className="mono">{w.info.version} · 首版</span>
         </div>
         <div className="about-row">
           <span>当前平台</span>
@@ -111,7 +111,10 @@ export function SettingsScreen({
           </span>
         </div>
         <p className="about-note">
-          本版提供界面、偏好保存及 Windows 播放设备枚举。连接、收听与麦克风传输随后接入。
+          {w.info.browserPreview
+            ? "浏览器仅提供布局与偏好预览；连接、系统声音收听及手机麦克风需使用原生应用。"
+            : "支持局域网 PIN 连接、系统声音共享与手机麦克风；麦克风需要电脑批准及已安装的虚拟音频线。"}
+          切换设置页不停止正在运行的音频。
         </p>
       </section>
     </div>

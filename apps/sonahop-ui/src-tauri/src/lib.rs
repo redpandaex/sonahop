@@ -15,7 +15,7 @@ pub fn run() {
     } else {
         LinkRole::Host
     };
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_autostart::Builder::new().build());
     let app = builder

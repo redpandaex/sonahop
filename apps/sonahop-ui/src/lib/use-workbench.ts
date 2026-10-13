@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { AppInfo, PlaybackDevice } from "./bridge";
 import {
   getAppInfo,
-  listPlaybackDevices,
   listCaptureDevices,
+  listPlaybackDevices,
   platformHint,
   setDesktopTheme,
 } from "./bridge";
-import type { AppInfo, PlaybackDevice } from "./bridge";
+import { nativeLinkAvailable } from "./link-bridge";
+import type { AudioMode, ConnectionRole, Preferences } from "./preferences";
 import { PREFERENCES_KEY, readPreferences, savePreferences } from "./preferences";
-import type { Preferences, AudioMode, ConnectionRole } from "./preferences";
-import { useLink } from "./use-link";
 import { useAudio } from "./use-audio";
 import { useAutostart } from "./use-autostart";
-import { nativeLinkAvailable } from "./link-bridge";
+import { useLink } from "./use-link";
 
 function initialPreferences() {
   try {
@@ -25,7 +25,7 @@ export function useWorkbench() {
   const [prefs, setPrefs] = useState(initialPreferences);
   const [info, setInfo] = useState<AppInfo>({
     platform: platformHint(),
-    version: "0.4.2",
+    version: "0.5.0",
     uiPreview: true,
     browserPreview: !nativeLinkAvailable(),
     systemCaptureSupported: false,
@@ -40,7 +40,7 @@ export function useWorkbench() {
   const link = useLink(info.platform, appReady);
   const audio = useAudio(info.platform, appReady);
   const autostart = useAutostart(info.platform, appReady);
-  const [micOutputDeviceId, setMicOutputDeviceId] = useState("");
+  const micOutputDeviceId = prefs.microphoneOutputDeviceId;
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleReady, setRoleReady] = useState(!nativeLinkAvailable());
   const [roleError, setRoleError] = useState("");
@@ -70,6 +70,18 @@ export function useWorkbench() {
     (value: Partial<Preferences>) => setPrefs((previous) => ({ ...previous, ...value })),
     [],
   );
+  const setMicOutputDeviceId = useCallback(
+    (microphoneOutputDeviceId: string) =>
+      setPrefs((previous) => ({
+        ...previous,
+        microphoneOutputDeviceId,
+        microphoneRecordingDeviceId:
+          previous.microphoneOutputDeviceId === microphoneOutputDeviceId
+            ? previous.microphoneRecordingDeviceId
+            : "",
+      })),
+    [],
+  );
   const switchRole = useCallback(
     async (next: ConnectionRole) => {
       if (roleGate.current) return false;
@@ -94,7 +106,6 @@ export function useWorkbench() {
         if (!(await link.start())) throw new Error("自动发现启动失败，请检查本地网络授权并重试。");
         if (mounted.current) {
           update({ connectionRole: next });
-          setMicOutputDeviceId("");
           setRoleReady(true);
           location.hash = "workspace";
         }
@@ -119,11 +130,10 @@ export function useWorkbench() {
   const switchMode = useCallback(
     async (mode: AudioMode) => {
       if (mode === prefs.mode) return true;
-      if (role === "client" && audio.available && !(await audio.stop())) return false;
       update({ mode });
       return true;
     },
-    [prefs.mode, role, audio.available, audio.stop, update],
+    [prefs.mode, update],
   );
   const stopLink = useCallback(async () => {
     if (audio.available) await audio.stop();
@@ -144,16 +154,6 @@ export function useWorkbench() {
     },
     [audio.available, audio.stop, audio.stopLane, audio.snapshot?.micPeerId, role, link.disconnect],
   );
-  useEffect(() => {
-    const mode = audio.snapshot?.mode;
-    if (
-      role === "client" &&
-      (mode === "listen" || mode === "microphone") &&
-      (audio.snapshot?.active || audio.snapshot?.waiting)
-    ) {
-      setPrefs((previous) => (previous.mode === mode ? previous : { ...previous, mode }));
-    }
-  }, [role, audio.snapshot?.mode, audio.snapshot?.active, audio.snapshot?.waiting]);
   const refreshDevices = useCallback(async () => {
     const version = ++deviceRevision.current;
     setLoading(true);

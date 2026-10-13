@@ -8,6 +8,17 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-theme",
-    "sonahop-lan:default"
+    "sonahop-lan:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://vb-audio.com/Cable/"
+        },
+        {
+          "url": "https://vb-audio.com/Voicemeeter/"
+        }
+      ]
+    }
   ]
 }

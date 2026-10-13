@@ -89,7 +89,7 @@ impl Source {
             ),
             #[cfg(target_os = "android")]
             Self::Android { channels, .. } => {
-                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error() {
+                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error(true) {
                     return Err(error);
                 }
                 let samples = tauri_plugin_sonahop_lan::android_audio::captured_packet(
@@ -137,7 +137,7 @@ impl Drop for Source {
             }
             #[cfg(target_os = "android")]
             Self::Android { app, .. } => {
-                let _ = app.sonahop_lan().stop_audio();
+                let _ = app.sonahop_lan().stop_capture();
             }
             _ => {}
         }
@@ -203,7 +203,7 @@ impl Sink {
             }
             #[cfg(target_os = "android")]
             Self::Android(_) => {
-                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error() {
+                if let Some(error) = tauri_plugin_sonahop_lan::android_audio::take_error(false) {
                     return Err(error);
                 }
                 tauri_plugin_sonahop_lan::android_audio::write_playback(&sonahop_audio::to_i16(
@@ -224,7 +224,7 @@ impl Drop for Sink {
             }
             #[cfg(target_os = "android")]
             Self::Android(app) => {
-                let _ = app.sonahop_lan().stop_audio();
+                let _ = app.sonahop_lan().stop_playback();
             }
             _ => {}
         }

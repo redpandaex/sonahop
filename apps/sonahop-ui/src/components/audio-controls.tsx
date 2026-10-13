@@ -1,3 +1,10 @@
+import {
+  ArrowClockwiseIcon,
+  ArrowRightIcon,
+  MicrophoneIcon,
+  SpeakerHighIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -7,15 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ArrowRightIcon,
-  ArrowClockwiseIcon,
-  MicrophoneIcon,
-  SpeakerHighIcon,
-} from "@phosphor-icons/react";
-import { ErrorMessage, StatusBadge, VolumeControl } from "./controls";
-import type { Workbench } from "../lib/use-workbench";
 import type { PlaybackDevice } from "../lib/bridge";
+import type { Workbench } from "../lib/use-workbench";
+import { virtualAudioRoutes, virtualMicrophoneReady } from "../lib/virtual-audio";
+import { ErrorMessage, StatusBadge, VolumeControl } from "./controls";
+import { VirtualAudioGuide } from "./virtual-audio-guide";
 
 export function audioStatusLabel(w: Workbench, lane?: "listen" | "microphone"): string {
   if (!w.audio.available) return w.info.browserPreview ? "浏览器布局预览" : "音频服务未就绪";
@@ -43,7 +46,8 @@ export function audioStatusLabel(w: Workbench, lane?: "listen" | "microphone"): 
           : "等待共享设备批准";
     return "音频已停止";
   }
-  if (value.listen.active && value.microphone.active) return "共享中 · 接收远端麦克风";
+  if (value.listen.active && value.microphone.active)
+    return value.role === "host" ? "共享中 · 接收远端麦克风" : "收听中 · 上传麦克风";
   if (value.listen.active || value.listen.waiting) return audioStatusLabel(w, "listen");
   if (value.microphone.active || value.microphone.waiting) return audioStatusLabel(w, "microphone");
   return "音频已停止";
@@ -84,18 +88,12 @@ export function AudioDiagnostics({
                 : "未启动"}
           </span>
         </div>
-        <div
-          className="signal-track"
-          role="meter"
-          aria-label={label}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={level}
-        >
+        <meter className="sr-only" aria-label={label} min={0} max={100} value={level} />
+        <div className="signal-track" aria-hidden="true">
           <div className="signal-fill" style={{ width: `${level}%` }} />
         </div>
       </div>
-      <div className="audio-diagnostics" aria-label="音频链路统计">
+      <section className="audio-diagnostics" aria-label="音频链路统计">
         <span>
           发送 <b className="mono">{snapshot.sentPackets}</b>
         </span>
@@ -105,7 +103,7 @@ export function AudioDiagnostics({
         <span>
           丢弃 <b className="mono">{snapshot.droppedPackets}</b>
         </span>
-      </div>
+      </section>
     </div>
   );
 }
@@ -324,16 +322,25 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
   const lane = w.audio.snapshot?.[laneName];
   const started = Boolean(lane?.active || lane?.waiting);
   const disabled = busy(w);
-  const validOutput =
-    !w.prefs.outputDeviceId || w.devices.some((device) => device.id === w.prefs.outputDeviceId);
+  const virtualMicrophone =
+    w.info.platform === "windows" && w.prefs.playbackDestination === "microphone";
+  const outputDeviceId = virtualMicrophone ? w.micOutputDeviceId : w.prefs.outputDeviceId;
+  const validOutput = virtualMicrophone
+    ? virtualMicrophoneReady(
+        w.devices,
+        w.captureDevices,
+        outputDeviceId,
+        w.prefs.microphoneRecordingDeviceId,
+      )
+    : !outputDeviceId || w.devices.some((device) => device.id === outputDeviceId);
   return (
     <section className="panel playback-panel player-audio-panel">
       <div className="panel-heading">
-        <h2>{microphone ? "上传本机麦克风" : "本地播放"}</h2>
+        <h2>{microphone ? "上传本机麦克风" : virtualMicrophone ? "作为电脑麦克风" : "本地播放"}</h2>
         <StatusBadge label={audioStatusLabel(w, laneName)} />
       </div>
       {microphoneAllowed && (
-        <div className="player-direction-tabs" aria-label="收听设备音频方向">
+        <section className="player-direction-tabs" aria-label="收听设备音频方向">
           <Button
             className={!microphone ? "direction-tab selected" : "direction-tab"}
             aria-pressed={!microphone}
@@ -352,11 +359,11 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
             <MicrophoneIcon size={18} weight="bold" />
             上传麦克风
           </Button>
-        </div>
+        </section>
       )}
       <div className="playback-identity">
         <span className="playback-icon">
-          {microphone ? (
+          {microphone || virtualMicrophone ? (
             <MicrophoneIcon size={37} weight="bold" />
           ) : (
             <SpeakerHighIcon size={37} weight="bold" />
@@ -366,9 +373,11 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           <h3>
             {microphone
               ? "本机麦克风"
-              : w.info.platform === "windows"
-                ? "本机音频输出"
-                : "本设备扬声器 / 耳机"}
+              : virtualMicrophone
+                ? "供电脑应用使用"
+                : w.info.platform === "windows"
+                  ? "本机音频输出"
+                  : "本设备扬声器 / 耳机"}
           </h3>
           {!microphone && started && w.audio.snapshot?.remoteSource && (
             <p>{w.audio.snapshot.remoteSource === "microphone" ? "麦克风声音" : "应用声音"}</p>
@@ -384,21 +393,48 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
         <>
           {w.info.platform === "windows" && (
             <>
-              <DeviceChoice
-                id="player-output"
-                label="音频输出设备"
-                value={w.prefs.outputDeviceId}
-                devices={w.devices}
-                defaultLabel="当前默认播放设备"
-                disabled={disabled || started || w.loading}
-                onChange={(outputDeviceId) => w.update({ outputDeviceId })}
-              />
-              {!validOutput && (
+              <section
+                className="player-direction-tabs playback-destination"
+                aria-label="接收音频用途"
+              >
+                <Button
+                  className={!virtualMicrophone ? "direction-tab selected" : "direction-tab"}
+                  aria-pressed={!virtualMicrophone}
+                  disabled={disabled || started}
+                  onClick={() => w.update({ playbackDestination: "speakers" })}
+                >
+                  <SpeakerHighIcon size={18} weight="bold" />
+                  扬声器 / 耳机
+                </Button>
+                <Button
+                  className={virtualMicrophone ? "direction-tab selected" : "direction-tab"}
+                  aria-pressed={virtualMicrophone}
+                  disabled={disabled || started}
+                  onClick={() => w.update({ playbackDestination: "microphone" })}
+                >
+                  <MicrophoneIcon size={18} weight="bold" />
+                  电脑麦克风
+                </Button>
+              </section>
+              {virtualMicrophone ? (
+                <VirtualOutputSelector workbench={w} />
+              ) : (
+                <DeviceChoice
+                  id="player-output"
+                  label="音频输出设备"
+                  value={w.prefs.outputDeviceId}
+                  devices={w.devices}
+                  defaultLabel="当前默认播放设备"
+                  disabled={disabled || started || w.loading}
+                  onChange={(outputDeviceId) => w.update({ outputDeviceId })}
+                />
+              )}
+              {!validOutput && !virtualMicrophone && (
                 <p className="field-help capability-note">
                   已保存的播放设备不在当前列表中，请重新选择。
                 </p>
               )}
-              {w.deviceError && <ErrorMessage message={w.deviceError} />}
+              {w.deviceError && !virtualMicrophone && <ErrorMessage message={w.deviceError} />}
             </>
           )}
           <VolumeControl workbench={w} />
@@ -418,7 +454,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
               ? w.audio.stopLane(laneName)
               : microphone
                 ? w.audio.requestMic(w.prefs.volume, w.prefs.inputDeviceId || undefined)
-                : w.audio.startListen({ outputDeviceId: w.prefs.outputDeviceId || undefined }))
+                : w.audio.startListen({ outputDeviceId: outputDeviceId || undefined }))
           }
         >
           {w.audio.busy
@@ -431,31 +467,57 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
                   : "停止收听"
               : microphone
                 ? "申请上传麦克风"
-                : "开始收听"}
+                : virtualMicrophone
+                  ? "开始接收"
+                  : "开始收听"}
           <ArrowRightIcon size={18} weight="bold" />
         </Button>
         {lane?.waiting && <p>{microphone ? "等待对方批准" : "等待对方开始共享"}</p>}
       </div>
+      {microphoneAllowed &&
+        (microphone
+          ? w.audio.snapshot?.listen.active || w.audio.snapshot?.listen.waiting
+          : w.audio.snapshot?.microphone.active || w.audio.snapshot?.microphone.waiting) && (
+          <div className="parallel-audio-status">
+            <span>{microphone ? "收听仍在运行" : "麦克风仍在运行"}</span>
+            <Button
+              className="secondary-button"
+              disabled={disabled}
+              onClick={() => void w.audio.stopLane(microphone ? "listen" : "microphone")}
+            >
+              {microphone ? "停止收听" : "停止麦克风"}
+            </Button>
+          </div>
+        )}
       {lane?.lastError && <ErrorMessage message={lane.lastError} />}
       <AudioDiagnostics workbench={w} lane={laneName} />
     </section>
   );
 }
 export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }) {
-  const activeMic = w.audio.snapshot?.microphone.active;
-  const value = activeMic
+  const [showOtherDevices, setShowOtherDevices] = useState(false);
+  const lane = w.role === "host" ? w.audio.snapshot?.microphone : w.audio.snapshot?.listen;
+  const active = Boolean(lane?.active || lane?.waiting);
+  const value = active
     ? (w.audio.snapshot?.outputDeviceId ?? w.micOutputDeviceId)
     : w.micOutputDeviceId;
+  const routes = virtualAudioRoutes(w.devices, w.captureDevices);
+  const knownIds = new Set(routes.map((route) => route.playback.id));
+  const otherDevices = showOtherDevices
+    ? w.devices.filter((device) => !knownIds.has(device.id))
+    : [];
+  const choices = [...routes.map((route) => route.playback), ...otherDevices];
+  const selected = w.devices.find((device) => device.id === value);
+  const disabled = w.loading || busy(w) || active || w.info.browserPreview;
   return (
     <div className="virtual-device-field">
       <div className="control-title">
         <label className="field-label" htmlFor="microphone-output">
-          虚拟音频线播放入口
+          电脑麦克风入口
         </label>
         <Button
           className="icon-button"
-          aria-label="刷新虚拟音频入口列表"
-          title="刷新播放设备"
+          aria-label="刷新虚拟音频设备"
           disabled={w.loading}
           onClick={() => void w.refreshDevices()}
         >
@@ -464,47 +526,77 @@ export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }
       </div>
       <Select
         value={value || "__sonahop_no_output__"}
-        disabled={
-          w.loading ||
-          w.audio.busy ||
-          w.roleBusy ||
-          !w.roleReady ||
-          Boolean(activeMic) ||
-          w.info.browserPreview
-        }
-        onValueChange={(selected) =>
-          w.setMicOutputDeviceId(selected === "__sonahop_no_output__" ? "" : selected)
+        disabled={disabled}
+        onValueChange={(chosen) =>
+          w.setMicOutputDeviceId(chosen === "__sonahop_no_output__" ? "" : chosen)
         }
       >
         <SelectTrigger
           id="microphone-output"
           className="device-select-trigger"
-          aria-label="虚拟音频线播放入口"
-          title={w.devices.find((device) => device.id === value)?.name}
+          title={selected?.name}
         >
-          <SelectValue placeholder="请选择虚拟音频线播放入口" />
+          <SelectValue placeholder="选择虚拟音频线播放端" />
         </SelectTrigger>
         <SelectContent position="popper" align="start" className="device-select-content">
           <SelectGroup>
             <SelectItem className="device-select-item" value="__sonahop_no_output__">
-              请选择虚拟音频线播放入口
+              选择虚拟音频线播放端
             </SelectItem>
-            {value && !w.devices.some((device) => device.id === value) && (
-              <SelectItem className="device-select-item" value={value} disabled>
-                所选设备当前不可用
+            {value && !choices.some((device) => device.id === value) && (
+              <SelectItem className="device-select-item" value={value} disabled={!selected}>
+                {selected ? `${selected.name} · 手动选择` : "所选设备当前不可用"}
               </SelectItem>
             )}
-            {w.devices.map((device) => (
+            {routes.map((route) => (
+              <SelectItem
+                className="device-select-item"
+                key={route.playback.id}
+                value={route.playback.id}
+                disabled={!route.recording && !showOtherDevices}
+              >
+                {route.playback.name}
+                {route.status === "ambiguous"
+                  ? " · 需手动配对"
+                  : !route.recording
+                    ? " · 需选择录音端"
+                    : ""}
+                {route.status === "ambiguous" ? ` · ${route.playback.id.slice(-9, -1)}` : ""}
+              </SelectItem>
+            ))}
+            {otherDevices.map((device) => (
               <SelectItem className="device-select-item" key={device.id} value={device.id}>
-                {device.name}
-                {device.isDefault ? " · 系统默认" : ""}
+                {device.name} · 手动配置
               </SelectItem>
             ))}
           </SelectGroup>
         </SelectContent>
       </Select>
-      <p className="field-help">选择虚拟音频线播放端（如 CABLE Input），电脑应用使用对应录音端。</p>
+      <Button
+        className="secondary-button virtual-audio-advanced"
+        disabled={disabled}
+        aria-expanded={showOtherDevices}
+        onClick={() => setShowOtherDevices((shown) => !shown)}
+      >
+        {showOtherDevices ? "收起其他设备" : "使用其他虚拟设备"}
+      </Button>
+      {(showOtherDevices || w.prefs.microphoneRecordingDeviceId) && (
+        <DeviceChoice
+          id="microphone-recording"
+          label="录音端（手动配置）"
+          value={w.prefs.microphoneRecordingDeviceId}
+          devices={w.captureDevices.map((device) => ({
+            ...device,
+            name: `${device.name} · ${device.id.slice(-9, -1)}`,
+          }))}
+          defaultLabel="自动识别对应录音端"
+          disabled={disabled}
+          onChange={(microphoneRecordingDeviceId) => w.update({ microphoneRecordingDeviceId })}
+        />
+      )}
+      <VirtualAudioGuide workbench={w} deviceId={value} />
       {w.deviceError && <ErrorMessage message={w.deviceError} />}
+      {w.captureError && <ErrorMessage message={w.captureError} />}
     </div>
   );
 }
@@ -514,7 +606,12 @@ export function RemoteMicrophonePanel({ workbench: w }: { workbench: Workbench }
   const snapshot = w.audio.snapshot;
   const requests = snapshot?.pendingMicRequests ?? [];
   const active = Boolean(snapshot?.microphone.active || snapshot?.microphone.waiting);
-  const validOutput = w.devices.some((device) => device.id === w.micOutputDeviceId);
+  const validOutput = virtualMicrophoneReady(
+    w.devices,
+    w.captureDevices,
+    w.micOutputDeviceId,
+    w.prefs.microphoneRecordingDeviceId,
+  );
   const disabled = busy(w);
   const name = w.link.snapshot?.peers.find((peer) => peer.id === snapshot?.micPeerId)?.name;
   return (

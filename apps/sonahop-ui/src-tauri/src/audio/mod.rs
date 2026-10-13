@@ -351,6 +351,19 @@ impl AudioService {
         if task.is_some() {
             return;
         }
+        #[cfg(target_os = "android")]
+        {
+            let service = Arc::downgrade(self);
+            tauri_plugin_sonahop_lan::android_audio::set_notification_stop_handler(move || {
+                let Some(service) = service.upgrade() else {
+                    return false;
+                };
+                tauri::async_runtime::spawn(async move {
+                    service.stop().await;
+                });
+                true
+            });
+        }
         let mut receiver = self.shared.link.subscribe();
         let weak = Arc::downgrade(self);
         *task = Some(tauri::async_runtime::spawn(async move {
@@ -452,8 +465,6 @@ impl AudioService {
             }
         } else {
             let peer = self.host_peer()?;
-            self.stop_lane_inner(StreamKind::Microphone, "本设备切换为收听", true)
-                .await;
             self.stop_lane_inner(StreamKind::Listen, "重新开始收听", true)
                 .await;
             {
@@ -487,8 +498,6 @@ impl AudioService {
             return Err("该服务器不支持接收远端麦克风".into());
         }
         let peer = self.host_peer()?;
-        self.stop_lane_inner(StreamKind::Listen, "本设备切换为麦克风", true)
-            .await;
         self.stop_lane_inner(StreamKind::Microphone, "重新申请麦克风", true)
             .await;
         {
@@ -558,16 +567,7 @@ impl AudioService {
         self.reject_pending("电脑已选择另一台手机作为麦克风", Some(&peer_id));
         self.stop_lane_inner(StreamKind::Microphone, "电脑切换麦克风设备", true)
             .await;
-        // A single Android remains one direction; other subscribers keep their listening stream.
-        let no_listeners = {
-            let mut state = self.shared.lock();
-            let removed = state.listeners.remove(&peer_id).is_some();
-            removed && state.listeners.is_empty()
-        };
-        if no_listeners {
-            self.stop_lane_inner(StreamKind::Listen, "最后一台收听设备切换为麦克风", false)
-                .await;
-        }
+        // Listening subscriptions survive an independently approved microphone lane.
         {
             let mut state = self.shared.lock();
             state.microphone.peer_id = Some(peer_id.clone());

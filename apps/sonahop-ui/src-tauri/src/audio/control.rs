@@ -119,18 +119,6 @@ impl AudioService {
                 };
                 let offer = {
                     let mut state = self.shared.lock();
-                    if state.microphone.peer_id.as_deref() == Some(peer.as_str()) {
-                        drop(state);
-                        let _ = self.shared.send(
-                            &peer,
-                            AudioControl::error(
-                                StreamKind::Listen,
-                                "同一个播放器一次运行一个音频方向",
-                                Some(request),
-                            ),
-                        );
-                        return;
-                    }
                     state.listeners.insert(peer.clone(), request.clone());
                     if state.listen.phase == Phase::Active {
                         state.listen.stream_id.map(|id| (id, state.send_source))
@@ -187,9 +175,8 @@ impl AudioService {
                     .find(|p| p.id == peer)
                     .map(|p| p.name.clone())
                     .unwrap_or_default();
-                let stop_listen = {
+                {
                     let mut state = self.shared.lock();
-                    let removed = state.listeners.remove(&peer).is_some();
                     if state.microphone.peer_id.as_deref() != Some(peer.as_str())
                         && state.requests.len() < 2
                     {
@@ -201,11 +188,6 @@ impl AudioService {
                             request_id: request,
                         });
                     }
-                    removed && state.listeners.is_empty() && state.listen.phase == Phase::Active
-                };
-                if stop_listen {
-                    self.stop_lane_inner(StreamKind::Listen, "最后一台收听设备切换为麦克风", false)
-                        .await;
                 }
             }
             AudioControl::Unsubscribe { request_id } => {

@@ -41,45 +41,27 @@ public final class AudioService extends Service {
     private static final String CHANNEL = "sonahop_audio";
     private static final int NOTIFICATION = 2401;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private Session owned;
+    private final java.util.LinkedHashMap<Long, Session> owned = new java.util.LinkedHashMap<>();
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) {
-            stopSelf(startId);
-            return START_NOT_STICKY;
-        }
-        long id = intent.getLongExtra(EXTRA_SESSION, -1);
-        Session session = AudioBridge.session(id);
-        if (ACTION_STOP.equals(intent.getAction())) {
-            if (session != null) AudioBridge.fail(session, "Audio stopped from the Android notification");
-            else if (owned == null) stopSelf(startId);
-            return START_NOT_STICKY;
-        }
+        if (intent == null) { if (owned.isEmpty()) stopSelf(startId); return START_NOT_STICKY; }
+        if (ACTION_STOP.equals(intent.getAction())) { AudioBridge.stopFromNotification(); return START_NOT_STICKY; }
+        Session session = AudioBridge.session(intent.getLongExtra(EXTRA_SESSION, -1));
         if (!ACTION_START.equals(intent.getAction()) || session == null) {
-            if (owned == null) stopSelf(startId);
+            if (owned.isEmpty()) stopSelf(startId);
             return START_NOT_STICKY;
         }
-        if (owned == session) return START_NOT_STICKY;
-        owned = session;
+        if (owned.containsKey(session.id)) return START_NOT_STICKY;
+        owned.put(session.id, session);
         session.service = this;
         session.startId = startId;
         try {
-            if (session.captureChannels != 0 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
+            if (session.captureChannels != 0 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
                 throw new SecurityException("Audio capture RECORD_AUDIO permission is not granted");
-            }
-            Notification notification = notification(session);
-            if (Build.VERSION.SDK_INT >= 29) {
-                int type = session.systemCapture ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                        : session.microphone
-                            ? (Build.VERSION.SDK_INT >= 30 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0)
-                            : ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
-                // MediaProjection is obtained only after this foreground service is established.
-                startForeground(NOTIFICATION, notification, type);
-            } else startForeground(NOTIFICATION, notification);
-            session.worker = new Thread(session::initialize, "sonahop-android-audio");
+            refreshForeground();
+            session.worker = new Thread(session::initialize, session.captureChannels == 0 ? "sonahop-android-playback" : "sonahop-android-capture");
             session.worker.start();
         } catch (RuntimeException error) {
             AudioBridge.fail(session, "Android foreground audio start failed: " + error.getMessage());
@@ -87,55 +69,68 @@ public final class AudioService extends Service {
         return START_NOT_STICKY;
     }
 
-    private Notification notification(Session session) {
+    private void refreshForeground() {
+        int type = 0;
+        for (Session session : owned.values()) {
+            if (!session.running) continue;
+            if (session.systemCapture && Build.VERSION.SDK_INT >= 29) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+            else if (session.microphone && Build.VERSION.SDK_INT >= 30) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+            else if (session.captureChannels == 0 && Build.VERSION.SDK_INT >= 29) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
+        }
+        // Establish the combined service types before either native device is initialized.
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(), type);
+        else startForeground(NOTIFICATION, notification());
+    }
+
+    private Notification notification() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "SonaHop audio",
-                    NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Listening, microphone and playback capture controls");
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "SonaHop audio", NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Listening and capture controls");
             channel.setSound(null, null);
             manager.createNotificationChannel(channel);
         }
-        Intent stop = new Intent(this, AudioService.class).setAction(ACTION_STOP)
-                .putExtra(EXTRA_SESSION, session.id);
-        PendingIntent stopAction = PendingIntent.getService(this, (int) session.id, stop,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
-                ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
-        builder.setSmallIcon(session.microphone ? android.R.drawable.ic_btn_speak_now
-                : android.R.drawable.ic_media_play)
-                .setContentTitle("SonaHop")
-                .setContentText(session.systemCapture ? "正在共享本机播放声音 · 点停止结束"
-                        : session.microphone ? "正在共享麦克风 · 点停止结束" : "正在接收音频 · 点停止结束")
-                .setCategory(Notification.CATEGORY_SERVICE).setOngoing(true).setOnlyAlertOnce(true)
-                .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,
-                        "停止", stopAction).build());
-        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
-        if (launch != null) builder.setContentIntent(PendingIntent.getActivity(this, 0, launch,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
-        if (Build.VERSION.SDK_INT >= 31) {
-            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        boolean playing = false, microphone = false, system = false;
+        for (Session session : owned.values()) {
+            if (!session.running) continue;
+            playing |= session.captureChannels == 0;
+            microphone |= session.microphone;
+            system |= session.systemCapture;
         }
+        Intent stop = new Intent(this, AudioService.class).setAction(ACTION_STOP);
+        PendingIntent stopAction = PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
+        String text = playing && microphone ? "正在收听并共享麦克风" : microphone ? "正在共享麦克风" : system ? "正在共享应用声音" : "正在接收音频";
+        builder.setSmallIcon(microphone ? android.R.drawable.ic_btn_speak_now : android.R.drawable.ic_media_play)
+            .setContentTitle("SonaHop").setContentText(text)
+            .setCategory(Notification.CATEGORY_SERVICE).setOngoing(true).setOnlyAlertOnce(true)
+            .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause, "停止全部", stopAction).build());
+        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (launch != null) builder.setContentIntent(PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        if (Build.VERSION.SDK_INT >= 31) builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         return builder.build();
     }
 
     void finished(Session session) {
-        if (owned == session) {
-            owned = null;
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelfResult(session.startId);
+        if (owned.remove(session.id) != null) {
+            if (owned.isEmpty()) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); }
+            else {
+                try { refreshForeground(); }
+                catch (RuntimeException error) {
+                    for (Session active : new ArrayList<>(owned.values()))
+                        AudioBridge.fail(active, "Android foreground service update failed: " + error.getMessage());
+                }
+            }
         }
     }
 
     @Override public void onDestroy() {
-        Session session = owned;
-        owned = null;
-        if (session != null && session.running) {
+        ArrayList<Session> sessions = new ArrayList<>(owned.values());
+        owned.clear();
+        for (Session session : sessions) if (session.running)
             AudioBridge.fail(session, "Android audio foreground service was stopped");
-        }
         super.onDestroy();
     }
-
     static final class Session {
         final long id;
         final Context context;
@@ -183,7 +178,7 @@ public final class AudioService extends Service {
                             .setContentType(microphone ? AudioAttributes.CONTENT_TYPE_SPEECH : AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build();
                     // Internal playback capture must not steal focus and pause the captured music app.
-                    if (!systemCapture) {
+                    if (captureChannels == 0) {
                         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
                         focusListener = change -> {
                             if (change < 0) AudioBridge.fail(this, "Android audio focus was lost");

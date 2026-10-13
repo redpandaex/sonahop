@@ -25,7 +25,7 @@ export async function getAppInfo(): Promise<AppInfo> {
   if (!isTauri())
     return {
       platform: platformHint(),
-      version: "0.4.2",
+      version: "0.5.0",
       uiPreview: true,
       browserPreview: true,
       systemCaptureSupported: false,
@@ -52,4 +52,15 @@ export async function setDesktopTheme(
   if (!isTauri() || platform !== "windows") return;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().setTheme(theme === "system" ? null : theme);
+}
+
+export async function openVirtualAudioWebsite(product: "cable" | "voicemeeter"): Promise<void> {
+  const url =
+    product === "voicemeeter" ? "https://vb-audio.com/Voicemeeter/" : "https://vb-audio.com/Cable/";
+  if (!isTauri()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
 }

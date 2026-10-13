@@ -16,6 +16,9 @@ export interface Preferences {
   sendSource: SendSource;
   inputDeviceId: string;
   outputDeviceId: string;
+  microphoneOutputDeviceId: string;
+  microphoneRecordingDeviceId: string;
+  playbackDestination: "speakers" | "microphone";
 }
 export const PREFERENCES_KEY = "sonahop.preferences.v1";
 export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
@@ -30,6 +33,9 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
   sendSource: "system",
   inputDeviceId: "",
   outputDeviceId: "",
+  microphoneOutputDeviceId: "",
+  microphoneRecordingDeviceId: "",
+  playbackDestination: "speakers",
 });
 function text(value: unknown, fallback: string, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : fallback;
@@ -60,6 +66,9 @@ export function readPreferences(raw: string | null): Preferences {
       sendSource: data.sendSource === "microphone" ? "microphone" : "system",
       inputDeviceId: text(data.inputDeviceId, "", 512),
       outputDeviceId: text(data.outputDeviceId, "", 512),
+      microphoneOutputDeviceId: text(data.microphoneOutputDeviceId, "", 512),
+      microphoneRecordingDeviceId: text(data.microphoneRecordingDeviceId, "", 512),
+      playbackDestination: data.playbackDestination === "microphone" ? "microphone" : "speakers",
     };
   } catch {
     return fallback;

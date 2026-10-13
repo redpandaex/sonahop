@@ -20,12 +20,12 @@
 ## Confirmed product milestone
 - Windows 11 host; Xiaomi 17 Pro Max and Lenovo Y700 generation 4, both Android 16.
 - Listen mode supports two Android listeners.
-- Windows may share system audio and receive one selected Android microphone concurrently. Each Android still runs only one audio direction; a second tablet can listen while a phone provides the microphone.
+- Windows may share system audio and receive one selected Android microphone concurrently. An Android client may listen and upload its microphone concurrently; a second tablet may also listen.
 - Initial microphone support uses an existing user-installed Windows virtual audio path.
 - USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
 
 ## Current stage
-- Follow docs/superpowers/plans/2026-10-12-address-polish.md for the current address/focus stage; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
+- Follow docs/superpowers/plans/2026-10-13-optional-devices-duplex.md for the current optional-device/duplex stage; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
 - The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
 - Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
 - Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
@@ -45,7 +45,7 @@
 - Native Windows virtual playback/capture endpoints remain a future driver-backed milestone. Do not install drivers or change OS defaults; record the default-off, capability-gated proposal.
 - Receiving playback uses unit gain and the Android media-volume keys; microphone gain is retained.
 - Autostart registration happens only after a user toggle, never automatically during app startup or agent verification.
-- Android hosting, phone-to-phone audio and Windows player are this stage's authorized scope. Role and platform are independent; role switching stops old audio/connections. Servers support two players. Each player uses one audio direction at a time; Windows host can additionally receive one remote microphone.
+- Android hosting, phone-to-phone audio and Windows player are this stage's authorized scope. Role and platform are independent; role switching stops old audio/connections. Servers support two players. A Windows host can receive one remote microphone while sharing; an Android client may concurrently listen and upload one microphone.
 - Android playback capture must not request audio focus or record the hardware microphone. Obtain fresh consent for every start, run the mediaProjection foreground service first, and release when revoked/stopped. JNI callbacks must match their session and mono/stereo packet size.
 - Windows microphone capture requires an available recording endpoint; no device means a disabled input choice and a clear explanation. Do not create virtual devices or install drivers.
 
@@ -54,3 +54,5 @@
 - Latest UI feedback supersedes the earlier Android app-selector design: remove custom capture-scope/app lists, UID filters, package-query command and preferences entirely, using Android's normal consent and app-selection flow. Do not claim that system screen selection guarantees additional audio UID isolation. Keep all local addresses after the owner withdrew WLAN-only filtering. Simplify visible explanations, improve dark contrast, and keep desktop scrolling inside the main content area. The owner confirmed Windows/Android discovery works in 0.4.0; preserve that network implementation.
 
 - Latest clarification supersedes the all-address presentation rule on Windows only: display Wi-Fi interface addresses identified by IEEE80211 type; Android keeps all previous eligible addresses. Discovery and TCP continue to use all eligible interfaces. Display/copy/manual entry are IP-only with a fixed internal port; migrate legacy saved/pasted endpoints. Text fields use one subtle focus treatment, preserving keyboard and error visibility. AudioRelay microphone docs inform the existing phone-host/Windows-client/virtual-cable workflow only; no new driver, automatic virtual-device selection or OS default change is authorized.
+
+- Latest user cancelled own kernel-driver work and authorized VB-CABLE integration plus finishing the existing duplex stage. Reuse WASAPI, recommend detected VB-CABLE/Voicemeeter endpoint pairs, allow explicit advanced routing, and provide scoped official links. Driver installation remains user-operated and independent of the app installer. No AudioRelay proprietary interface dependency. Package current exe/APK/NSIS, review, commit and push the existing branch; user performs runtime tests.

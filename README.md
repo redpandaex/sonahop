@@ -2,18 +2,19 @@
 
 以 Rust 为核心、Tauri 提供 Windows / Android 界面的跨设备音频项目。
 
-## 当前交付：0.4.2
+## 当前交付：0.5.0
 
-Windows 和 Android 都可共享本机声音，也可收听另一台设备。一个共享设备最多连接两台收听设备；内部播放声音与本机麦克风分别选择，不混音。Windows 共享端还可独立接收一台远端麦克风到用户已有的虚拟音频线。
+Windows 和 Android 都可共享本机声音，也可收听另一台设备。一个共享设备最多连接两台收听设备；内部播放声音与本机麦克风分别选择，不混音。Android 客户端可在收听 Windows 的同时上传麦克风，两条方向可分别停止。Windows 共享端还可独立接收一台远端麦克风到用户已有的虚拟音频线。
 
 界面采用“共享 / 收听 / 设置”，Android 使用固定底部导航。打开应用后自动恢复上次角色并启动局域网发现，不自动配对、共享、收听或录音。切换角色先停止音频和连接，再启动新角色的发现；进入设置保留当前会话。常规联网开关已移除，启动失败时可重试。
 
 ## 最新安装包
 
-- artifacts/address-polish/sonahop-windows.exe
-- artifacts/address-polish/sonahop-android-arm64-debug.apk
+- artifacts/vb-cable/sonahop-windows.exe
+- artifacts/vb-cable/sonahop-windows-setup.exe（独立主程序安装器，不包含虚拟驱动）
+- artifacts/vb-cable/sonahop-android-arm64-debug.apk
 
-电脑和两台 Android 可覆盖更新到 0.4.2。Android 为 ARM64 debug 包，保留原 debug 签名，versionCode 4002；历史 artifacts/ui-refinement 是 0.4.1，artifacts/discovery-ui 是 0.4.0。
+本版 Windows/Android 版本为 0.5.0。Android 为 ARM64 debug 包，保留原 debug 签名，versionCode 5000；历史 address-polish 是 0.4.2、ui-refinement 是 0.4.1。安装器按当前用户安装主程序，虚拟设备由用户按需单独安装。
 
 新 Windows exe 路径可能触发新的防火墙提示，请允许在本地网络通信；也可先关闭旧程序，再将新版替换到原先允许的 exe 路径。不要同时运行两个版本。
 
@@ -39,10 +40,31 @@ Windows 收听端可选择 SonaHop 的音频输出设备，空值使用默认设
 
 1. 手机进入“共享”，选择“本机麦克风”，主动开始并授权。
 2. Windows 进入“收听”，使用手机的 IP/PIN 连接，在手机确认连接。
-3. 若已安装虚拟音频线，在 Windows“音频输出设备”选择它的播放端（如 CABLE Input），再开始收听。
+3. Windows 接收用途切换为“电脑麦克风”，选择虚拟音频线播放端（如 CABLE Input），再点击开始接收。界面显示会议软件应选择的对应录音端。
 4. 在会议或录音应用里选择该虚拟音频线的对应录音端。此路径沿用现有接收输出能力，不安装驱动或更改 Windows 默认设备。
 
-这个角色组合参考 [AudioRelay 手机麦克风流程](https://audiorelay.net/docs/windows/use-your-phone-as-a-mic-for-windows)：手机共享麦克风，Windows 接收到虚拟麦克风，业务应用使用其录音端。SonaHop 当前使用用户已有的虚拟音频线；自带虚拟麦克风驱动与专门的接收输出目的切换仍属于后续范围。
+这个角色组合参考 [AudioRelay 手机麦克风流程](https://audiorelay.net/docs/windows/use-your-phone-as-a-mic-for-windows)：手机共享麦克风，Windows 接收到虚拟麦克风，业务应用使用其录音端。SonaHop 使用用户已有的虚拟音频线，并提供专门的接收用途选择；自带虚拟麦克风驱动已暂停。
+
+## 按需接入 VB-CABLE / Voicemeeter
+
+VB-Audio 是厂商，VB-CABLE 是它提供的虚拟音频线，Voicemeeter 是带虚拟设备的混音器。接入复用 Windows WASAPI，不需要专用 SDK，也不依赖 AudioRelay 的私有驱动接口。
+
+1. 需要电脑麦克风时，从 [VB-CABLE 官网](https://vb-audio.com/Cable/) 下载并按厂商说明安装，完成后重启 Windows。主程序不自动安装驱动或调整启动策略。
+2. 在 SonaHop 刷新设备，明确选择 CABLE Input；在会议/录音软件选择 CABLE Output。安装 CABLE A/B/C/D 时同样选择同一条线的两端。
+3. 使用 [Voicemeeter](https://vb-audio.com/Voicemeeter/) 时，需要运行混音器，选择其输入端并启用相应 B 总线，录音软件使用对应输出。这里只接入音频端点，不自动操作混音器。
+
+推荐列表按播放/录音端名称识别；已知录音端未启用时阻止启动。同名、改名或其他驱动可通过“使用其他虚拟设备”手动选择播放端及录音端，选择分别按设备 ID 保存。手动模式由用户确认两端属于同一条音频线；缺失或已禁用的录音端不能启用。设备识别是界面提示，无法仅凭名字保证任意驱动内部路由。
+
+普通播放和电脑麦克风的输出选择分别保存，不修改 Windows 默认设备，不默认选择实体扬声器作为麦克风入口。若两条独立虚拟路由都需要虚拟音频线，应使用不同的线，避免信号串入同一条线。
+
+VB-CABLE/Voicemeeter 是外部可选组件，采用厂商的捐赠授权；没有被复制或捆绑到 SonaHop。具体使用和商业授权以 [厂商条款](https://vb-audio.com/Services/licensing.htm) 为准。
+
+## 用户验收
+
+1. VB-CABLE 安装后刷新：能选择 CABLE Input，能看到 CABLE Output 提示；会议软件使用该录音端，对手机说话检查信号。
+2. 分别验证 Windows 共享端批准远端麦克风、Android 共享麦克风到 Windows 收听端两种角色组合。
+3. 同一台 Android 连接 Windows，共享端批准麦克风后同时收听/上传；分别停止一条方向，确认另一条继续。在一条运行、另一条等待时点击通知“停止全部”，再批准旧申请，确认不会重新开始采集。麦克风测试优先使用耳机。
+4. 重开应用检查两种输出选择独立保存；禁用录音端后刷新应显示不可用；主程序安装/卸载不安装或删除第三方驱动。
 
 ## 发现、授权与诊断
 
@@ -67,10 +89,10 @@ pnpm install --frozen-lockfile
 $env:JAVA_HOME = 'D:\ProgramFiles\java\jdk-21.0.12.1+1'
 $env:ANDROID_HOME = 'D:\Android\Sdk'
 $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
-./scripts/build-audio-mvp.ps1 -Platform Both -OutputDirectory artifacts/address-polish
+./scripts/build-audio-mvp.ps1 -Platform Both -WindowsInstaller -OutputDirectory artifacts/vb-cable
 ```
 
-脚本只编译打包，不启动应用或录音。Tauri 先生成插件依赖并编译当前 Rust，只有明确的 Windows 符号链接权限错误才使用同一次成功编译的 .so 交给 Gradle。交付记录在 artifacts/address-polish/build-info.json，构建日志在同目录 build.log 和 android-build.log。
+脚本只编译打包，不启动应用或录音。Tauri 先生成插件依赖并编译当前 Rust，只有明确的 Windows 符号链接权限错误才使用同一次成功编译的 .so 交给 Gradle。交付记录在 artifacts/vb-cable/build-info.json，构建日志在同目录 build.log 和 android-build.log。
 
 开发原生界面：pnpm dev；浏览器布局预览：pnpm web:dev，地址 http://localhost:1420/?platform=windows 或 ?platform=android。浏览器预览不提供真实连接或音频。
 
@@ -80,6 +102,6 @@ $env:NDK_HOME = 'D:\Android\Sdk\ndk\30.0.16248370'
 
 cargo run -p sonahop -- devices --json 仅列 Windows 播放设备。原有 capture --output artifacts/playback-new.wav --seconds 5 是用户手动的系统端点采集诊断，须在采集期间播放声音；不会覆盖已有文件，WAV 保持 float32。
 
-当前计划：docs/superpowers/plans/2026-10-12-address-polish.md。角色分离设计：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md。
+当前计划：docs/superpowers/plans/2026-10-13-optional-devices-duplex.md。角色分离设计：docs/superpowers/specs/2026-10-12-multi-role-audio-design.md。
 
-Windows 自带虚拟播放/录音驱动、同机同时作为共享和收听端、音源混音、专用 USB 音频和麦克风回授抑制仍为后续范围。虚拟设备方案：docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。
+自研 Windows 虚拟播放/录音驱动暂停；同机同时作为共享和收听角色、音源混音、专用 USB 音频和麦克风回授抑制仍为后续范围。同一 Android 客户端收听和上传麦克风的改动已纳入本版，需按上面的验收步骤实测。虚拟设备方案：docs/superpowers/specs/2026-10-12-virtual-audio-devices.md。

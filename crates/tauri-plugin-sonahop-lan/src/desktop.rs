@@ -39,6 +39,12 @@ impl<R: Runtime> SonahopLan<R> {
             microphone_capture: false,
         })
     }
+    pub fn stop_capture(&self) -> crate::Result<()> {
+        Ok(())
+    }
+    pub fn stop_playback(&self) -> crate::Result<()> {
+        Ok(())
+    }
     pub fn stop_audio(&self) -> crate::Result<()> {
         Ok(())
     }

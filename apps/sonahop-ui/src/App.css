@@ -2178,3 +2178,51 @@ input[data-slot="input"][aria-invalid="true"]:focus {
     box-shadow: none;
   }
 }
+
+.parallel-audio-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.virtual-audio-guide {
+  margin-top: 12px;
+}
+.virtual-audio-guide .field-help {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.virtual-audio-recording strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.virtual-audio-advanced {
+  margin-top: 10px;
+}
+.virtual-audio-help {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.virtual-audio-help summary {
+  cursor: pointer;
+}
+.virtual-audio-help ol {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+.virtual-audio-help li + li {
+  margin-top: 6px;
+}
+.virtual-audio-help .secondary-button {
+  margin-top: 8px;
+}
+.playback-destination {
+  flex-wrap: wrap;
+}

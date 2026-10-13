@@ -12,8 +12,11 @@ public final class AudioBridge {
     private AudioBridge() {}
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static long nextId;
-    private static AudioService.Session current;
+    private static AudioService.Session capture;
+    private static AudioService.Session playback;
+    private static boolean isCurrent(AudioService.Session session) { return session == capture || session == playback; }
     private static boolean registered;
+    private static boolean notificationStopPending;
 
     public interface StartResult { void complete(String error); }
 
@@ -22,6 +25,7 @@ public final class AudioBridge {
     private static native void nativeCaptured(byte[] pcm, long sessionId);
     private static native void nativeAudioFailure(String message, long sessionId);
     private static native void nativeStopped(long sessionId);
+    private static native boolean nativeStopRequested();
 
     private static void register() {
         if (registered) return;
@@ -35,7 +39,8 @@ public final class AudioBridge {
         registered = true;
     }
 
-    public static synchronized boolean hasActiveSession() { return current != null; }
+    public static synchronized boolean hasActiveSession() { return capture != null || playback != null; }
+    public static synchronized boolean hasActiveSession(boolean capturing) { return (capturing ? capture : playback) != null; }
 
     public static void start(Activity activity, boolean microphone, StartResult callback) {
         start(activity, microphone, false, null, callback);
@@ -53,7 +58,11 @@ public final class AudioBridge {
             Intent projectionData, StartResult callback) {
         final AudioService.Session session;
         synchronized (AudioBridge.class) {
-            if (current != null) {
+            if (notificationStopPending) {
+                MAIN.post(() -> callback.complete("Notification stopped audio; wait for cancellation and start again"));
+                return;
+            }
+            if ((microphone || systemCapture ? capture : playback) != null) {
                 MAIN.post(() -> callback.complete("Android audio is already active or stopping"));
                 return;
             }
@@ -65,7 +74,8 @@ public final class AudioBridge {
                 return;
             }
             session = new AudioService.Session(++nextId, activity.getApplicationContext(), microphone, systemCapture, projectionData, callback);
-            current = session;
+            if (microphone || systemCapture) capture = session;
+            else playback = session;
         }
         Intent intent = new Intent(activity, AudioService.class)
                 .setAction(AudioService.ACTION_START).putExtra(AudioService.EXTRA_SESSION, session.id);
@@ -74,7 +84,7 @@ public final class AudioBridge {
             else activity.startService(intent);
             MAIN.postDelayed(() -> {
                 synchronized (AudioBridge.class) {
-                    if (current != session || session.ready || !session.running) return;
+                    if (!isCurrent(session) || session.ready || !session.running) return;
                 }
                 fail(session, "Android audio initialization timed out");
             }, 8000);
@@ -84,12 +94,13 @@ public final class AudioBridge {
     }
 
     static synchronized AudioService.Session session(long id) {
-        return current != null && current.id == id && current.running ? current : null;
+        if (capture != null && capture.id == id && capture.running) return capture;
+        return playback != null && playback.id == id && playback.running ? playback : null;
     }
 
     static void ready(AudioService.Session session) {
         synchronized (AudioBridge.class) {
-            if (current != session || !session.running) return;
+            if (!isCurrent(session) || !session.running) return;
             session.ready = true;
         }
         complete(session, null);
@@ -102,7 +113,7 @@ public final class AudioBridge {
             synchronized (AudioBridge.class) {
                 callback = session.callback;
                 session.callback = null;
-                cancelled = error == null && (current != session || !session.running);
+                cancelled = error == null && (!isCurrent(session) || !session.running);
             }
             if (callback != null) callback.complete(cancelled ? "Android audio start was cancelled" : error);
         });
@@ -110,32 +121,51 @@ public final class AudioBridge {
 
 
     static synchronized void captured(AudioService.Session session, byte[] bytes) {
-        if (current == session && session.running && session.ready) nativeCaptured(bytes, session.id);
+        if (isCurrent(session) && session.running && session.ready) nativeCaptured(bytes, session.id);
     }
 
     static void fail(AudioService.Session session, String message) {
         synchronized (AudioBridge.class) {
-            if (current != session || !session.running) return;
+            if (!isCurrent(session) || !session.running) return;
             nativeAudioFailure(message, session.id);
         }
         stop(session, message);
     }
 
-    public static void stop() { stop((StartResult) null); }
-
-    public static void stop(StartResult callback) {
-        AudioService.Session session;
-        synchronized (AudioBridge.class) {
-            session = current;
-            if (session != null && callback != null) session.stopCallbacks.add(callback);
-        }
-        if (session != null) stop(session, null);
-        else if (callback != null) MAIN.post(() -> callback.complete(null));
+    public static void stopFromNotification() {
+        synchronized (AudioBridge.class) { notificationStopPending = true; }
+        // Block late grants before asking Rust to cancel both control requests.
+        boolean coordinated = nativeStopRequested();
+        stop(error -> { if (!coordinated) finishNotificationStop(); });
     }
 
+    static synchronized void finishNotificationStop() { notificationStopPending = false; }
+
+    public static void stop() { stop((StartResult) null); }
+
+    public static void stop(StartResult callback) { stopMatching(0, callback); }
+    public static void stopCapture(StartResult callback) { stopMatching(1, callback); }
+    public static void stopPlayback(StartResult callback) { stopMatching(2, callback); }
+    private static void stopMatching(int kind, StartResult callback) {
+        java.util.ArrayList<AudioService.Session> sessions = new java.util.ArrayList<>();
+        synchronized (AudioBridge.class) {
+            if (kind != 2 && capture != null) sessions.add(capture);
+            if (kind != 1 && playback != null) sessions.add(playback);
+            if (callback != null && !sessions.isEmpty()) {
+                java.util.concurrent.atomic.AtomicInteger remaining = new java.util.concurrent.atomic.AtomicInteger(sessions.size());
+                for (AudioService.Session session : sessions) {
+                    session.stopCallbacks.add(error -> {
+                        if (remaining.decrementAndGet() == 0) MAIN.post(() -> callback.complete(error));
+                    });
+                }
+            }
+        }
+        for (AudioService.Session session : sessions) stop(session, null);
+        if (sessions.isEmpty() && callback != null) MAIN.post(() -> callback.complete(null));
+    }
     static void stop(AudioService.Session session, String reason) {
         synchronized (AudioBridge.class) {
-            if (current != session || !session.running) return;
+            if (!isCurrent(session) || !session.running) return;
             session.running = false;
             // A stopped session cannot publish PCM or an error into its successor.
             nativeStopped(session.id);
@@ -147,7 +177,8 @@ public final class AudioBridge {
     static void released(AudioService.Session session) {
         java.util.ArrayList<StartResult> callbacks;
         synchronized (AudioBridge.class) {
-            if (current == session) current = null;
+            if (capture == session) capture = null;
+            if (playback == session) playback = null;
             callbacks = new java.util.ArrayList<>(session.stopCallbacks);
             session.stopCallbacks.clear();
         }
@@ -157,13 +188,13 @@ public final class AudioBridge {
     /** Called only by the Rust playback worker; bounded to a 20 ms deadline. */
     public static int writePlayback(byte[] pcm) {
         long id;
-        synchronized (AudioBridge.class) { id = current == null ? -1 : current.id; }
+        synchronized (AudioBridge.class) { id = playback == null ? -1 : playback.id; }
         return writePlayback(pcm, id);
     }
 
     public static int writePlayback(byte[] pcm, long expectedSession) {
         final AudioService.Session session;
-        synchronized (AudioBridge.class) { session = current; }
+        synchronized (AudioBridge.class) { session = playback; }
         if (session == null || session.id != expectedSession || session.captureChannels != 0 || !session.running || !session.ready
                 || pcm == null || pcm.length == 0 || pcm.length % 4 != 0 || pcm.length > 7680) return -1;
         int written = 0;

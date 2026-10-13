@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('Windows','Android','Both')][string]$Platform='Both', [string]$OutputDirectory='artifacts/audio-mvp')
+param([ValidateSet('Windows','Android','Both')][string]$Platform='Both', [string]$OutputDirectory='artifacts/audio-mvp', [switch]$WindowsInstaller)
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location -LiteralPath $repoRoot
@@ -52,9 +52,17 @@ try {
     }
     if($Platform -in @('Windows','Both')) {
         Prepare-Opus 'Windows'
-        Run-Native 'pnpm' @('--filter','sonahop-ui','tauri','build','--no-bundle')
+        $windowsBuildArguments=@('--filter','sonahop-ui','tauri','build')
+        if($WindowsInstaller) { $windowsBuildArguments+=@('--bundles','nsis') } else { $windowsBuildArguments+='--no-bundle' }
+        Run-Native 'pnpm' $windowsBuildArguments
         $cargoTarget=if($env:CARGO_TARGET_DIR){[IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)}else{Join-Path $repoRoot 'target'}
         Copy-Item -LiteralPath (Join-Path $cargoTarget 'release/sonahop-ui.exe') -Destination (Join-Path $artifactDir 'sonahop-windows.exe') -Force
+        if($WindowsInstaller) {
+            $appVersion=(Get-Content -LiteralPath (Join-Path $repoRoot 'apps/sonahop-ui/src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json).version
+            $installer=Get-ChildItem -LiteralPath (Join-Path $cargoTarget 'release/bundle/nsis') -Filter ('SonaHop_'+$appVersion+'_*-setup.exe') -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if(-not $installer) { throw 'NSIS did not produce an installer for the current application version.' }
+            Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $artifactDir 'sonahop-windows-setup.exe') -Force
+        }
     }
     if($Platform -in @('Android','Both')) {
         if(-not $env:JAVA_HOME -or -not $env:ANDROID_HOME -or -not $env:NDK_HOME) { throw 'Set JAVA_HOME (JDK21), ANDROID_HOME (SDK37) and NDK_HOME (30.0.16248370) before Android packaging.' }

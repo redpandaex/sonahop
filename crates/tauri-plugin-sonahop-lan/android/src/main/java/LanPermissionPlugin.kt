@@ -78,7 +78,7 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.reject("请保持 SonaHop 在前台，再点击开始音频")
                 return@runOnUiThread
             }
-            if (preparingAudio != null || AudioBridge.hasActiveSession()) {
+            if (preparingAudio != null || AudioBridge.hasActiveSession(mode != "listen")) {
                 invoke.reject("Android audio is already active, stopping or awaiting permission")
                 return@runOnUiThread
             }
@@ -218,12 +218,36 @@ class LanPermissionPlugin(private val activity: Activity) : Plugin(activity) {
         activity.runOnUiThread {
             cancelPreparation("Android audio preparation was stopped; obtain fresh consent to start again")
             AudioBridge.stop { error ->
+                AudioBridge.finishNotificationStop()
                 if (error != null) invoke.reject(error)
                 else invoke.resolve(JSObject().put("started", false))
             }
         }
     }
 
+    @Command
+    fun stopCapture(invoke: Invoke) {
+        activity.runOnUiThread {
+            if (preparingAudio?.getArgs()?.optString("mode", "") != "listen")
+                cancelPreparation("Android capture preparation was stopped")
+            AudioBridge.stopCapture { error ->
+                if (error != null) invoke.reject(error) else invoke.resolve(JSObject().put("started", false))
+            }
+        }
+    }
+    @Command
+    fun stopPlayback(invoke: Invoke) {
+        activity.runOnUiThread {
+            if (preparingAudio?.getArgs()?.optString("mode", "") == "listen") {
+                val pending = preparingAudio
+                preparingAudio = null
+                pending?.reject("Android playback preparation was stopped")
+            }
+            AudioBridge.stopPlayback { error ->
+                if (error != null) invoke.reject(error) else invoke.resolve(JSObject().put("started", false))
+            }
+        }
+    }
     private fun cancelPreparation(reason: String) {
         preparedProjection = null;preparedAt=0L
         val pending = preparingAudio

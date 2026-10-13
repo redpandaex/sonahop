@@ -1,6 +1,6 @@
 /target/
 /artifacts/
-/.superpowers/sdd/
+/.superpowers/
 /.worktrees/
 *.jks
 *.keystore
@@ -12,3 +12,4 @@ node_modules/
 /apps/sonahop-ui/dist/
 /output/playwright/
 /.playwright-cli/
+/.deps/

@@ -52,6 +52,16 @@ impl<R: Runtime> SonahopLan<R> {
         }
         Ok(())
     }
+    pub fn stop_capture(&self) -> crate::Result<()> {
+        self.stop_native("stopCapture")
+    }
+    pub fn stop_playback(&self) -> crate::Result<()> {
+        self.stop_native("stopPlayback")
+    }
+    fn stop_native(&self, command: &str) -> crate::Result<()> {
+        let _: serde_json::Value = self.0.run_mobile_plugin(command, serde_json::json!({}))?;
+        Ok(())
+    }
     pub fn stop_audio(&self) -> crate::Result<()> {
         let _: serde_json::Value = self
             .0

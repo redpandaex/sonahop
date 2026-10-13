@@ -1,7 +1,7 @@
 //! Native Android PCM bridge. No audio packets cross Tauri's JSON command channel.
 //!
-//! Java serializes callbacks against the current session before entering JNI. The
-//! queue holds three 20 ms mono packets; overflow discards the oldest packet so a
+//! Java serializes callbacks by capture/playback session before entering JNI. The
+//! queue holds three 20 ms mono or stereo packets; overflow discards the oldest packet so a
 //! delayed network sender cannot accumulate stale microphone audio.
 use jni::{
     JNIEnv, JavaVM,
@@ -23,7 +23,26 @@ struct JavaBridge {
 }
 
 static JAVA: OnceLock<JavaBridge> = OnceLock::new();
-static AUDIO: OnceLock<(Mutex<AudioState>, Condvar)> = OnceLock::new();
+static CAPTURE: OnceLock<(Mutex<AudioState>, Condvar)> = OnceLock::new();
+static PLAYBACK: OnceLock<(Mutex<AudioState>, Condvar)> = OnceLock::new();
+static NOTIFICATION_STOP: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
+
+/// The application coordinator cancels both active and waiting control lanes.
+pub fn set_notification_stop_handler(handler: impl Fn() -> bool + Send + Sync + 'static) {
+    let _ = NOTIFICATION_STOP.set(Box::new(handler));
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeStopRequested(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) -> jni::sys::jboolean {
+    if NOTIFICATION_STOP.get().is_some_and(|handler| handler()) {
+        jni::sys::JNI_TRUE
+    } else {
+        jni::sys::JNI_FALSE
+    }
+}
 
 struct AudioState {
     packets: VecDeque<Vec<i16>>,
@@ -34,8 +53,9 @@ struct AudioState {
     capture_channels: usize,
 }
 
-fn audio() -> &'static (Mutex<AudioState>, Condvar) {
-    AUDIO.get_or_init(|| {
+fn audio(capture: bool) -> &'static (Mutex<AudioState>, Condvar) {
+    let slot = if capture { &CAPTURE } else { &PLAYBACK };
+    slot.get_or_init(|| {
         (
             Mutex::new(AudioState {
                 packets: VecDeque::with_capacity(CAPTURE_QUEUE_PACKETS),
@@ -53,7 +73,7 @@ fn audio() -> &'static (Mutex<AudioState>, Condvar) {
 /// Receive one 20 ms, 48 kHz mono microphone or stereo playback PCM16 packet.
 /// Hardware/service failures wake the waiter immediately.
 pub fn captured_packet(timeout: Duration) -> Result<Option<Vec<i16>>, String> {
-    let (mutex, wake) = audio();
+    let (mutex, wake) = audio(true);
     let state = mutex
         .lock()
         .map_err(|_| "Android capture state lock failed")?;
@@ -79,7 +99,7 @@ pub fn captured_packet(timeout: Duration) -> Result<Option<Vec<i16>>, String> {
 }
 
 pub fn clear_capture() {
-    if let Ok(mut state) = audio().0.lock() {
+    if let Ok(mut state) = audio(true).0.lock() {
         state.packets.clear();
     }
 }
@@ -92,7 +112,7 @@ pub fn write_playback(samples: &[i16]) -> Result<(), String> {
     }
     let bridge = JAVA.get().ok_or("Android audio JNI is not registered")?;
     let (generation, java_session) = {
-        let state = audio()
+        let state = audio(false)
             .0
             .lock()
             .map_err(|_| "Android audio state lock failed")?;
@@ -131,7 +151,7 @@ pub fn write_playback(samples: &[i16]) -> Result<(), String> {
             return Err(format!("Android AudioTrack JNI write failed: {error}"));
         }
     };
-    let state = audio()
+    let state = audio(false)
         .0
         .lock()
         .map_err(|_| "Android audio state lock failed")?;
@@ -151,19 +171,19 @@ pub fn write_playback(samples: &[i16]) -> Result<(), String> {
 }
 
 /// Drained by the coordinator so notification stop/focus loss update app state.
-pub fn take_error() -> Option<String> {
-    audio().0.lock().ok()?.error.take()
+pub fn take_error(capture: bool) -> Option<String> {
+    audio(capture).0.lock().ok()?.error.take()
 }
 
 fn failure(message: String) {
-    let (mutex, wake) = audio();
-    if let Ok(mut state) = mutex.lock() {
-        if state.error.is_none() {
+    for capture in [true, false] {
+        let (mutex, wake) = audio(capture);
+        if let Ok(mut state) = mutex.lock() {
             state.error = Some(message.chars().take(512).collect());
+            state.stopped = true;
+            state.packets.clear();
+            wake.notify_all();
         }
-        state.stopped = true;
-        state.packets.clear();
-        wake.notify_all();
     }
 }
 
@@ -212,7 +232,7 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeS
         );
         return;
     }
-    let (mutex, wake) = audio();
+    let (mutex, wake) = audio(capture_channels > 0);
     if let Ok(mut state) = mutex.lock() {
         state.generation = state.generation.wrapping_add(1);
         state.packets.clear();
@@ -224,17 +244,19 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeS
     }
 }
 fn failure_for_session(session_id: i64, message: String) {
-    let (mutex, wake) = audio();
-    if let Ok(mut state) = mutex.lock() {
-        if state.java_session != session_id {
-            return;
+    for capture in [true, false] {
+        let (mutex, wake) = audio(capture);
+        if let Ok(mut state) = mutex.lock() {
+            if state.java_session != session_id {
+                continue;
+            }
+            if state.error.is_none() {
+                state.error = Some(message.chars().take(512).collect());
+            }
+            state.stopped = true;
+            state.packets.clear();
+            wake.notify_all();
         }
-        if state.error.is_none() {
-            state.error = Some(message.chars().take(512).collect());
-        }
-        state.stopped = true;
-        state.packets.clear();
-        wake.notify_all();
     }
 }
 #[unsafe(no_mangle)]
@@ -245,7 +267,7 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeC
     session_id: jni::sys::jlong,
 ) {
     let expected = {
-        let Ok(state) = audio().0.lock() else {
+        let Ok(state) = audio(true).0.lock() else {
             return;
         };
         if state.stopped || state.java_session != session_id {
@@ -274,7 +296,7 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeC
         .chunks_exact(2)
         .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
         .collect();
-    let (mutex, wake) = audio();
+    let (mutex, wake) = audio(true);
     if let Ok(mut state) = mutex.lock() {
         if state.stopped || state.java_session != session_id {
             return;
@@ -305,15 +327,17 @@ pub extern "system" fn Java_io_github_redpandaex_sonahop_lan_AudioBridge_nativeS
     _class: JClass<'_>,
     session_id: jni::sys::jlong,
 ) {
-    let (mutex, wake) = audio();
-    if let Ok(mut state) = mutex.lock() {
-        if state.java_session != session_id {
-            return;
+    for capture in [true, false] {
+        let (mutex, wake) = audio(capture);
+        if let Ok(mut state) = mutex.lock() {
+            if state.java_session != session_id {
+                continue;
+            }
+            state.generation = state.generation.wrapping_add(1);
+            state.stopped = true;
+            state.capture_channels = 0;
+            state.packets.clear();
+            wake.notify_all();
         }
-        state.generation = state.generation.wrapping_add(1);
-        state.stopped = true;
-        state.capture_channels = 0;
-        state.packets.clear();
-        wake.notify_all();
     }
 }

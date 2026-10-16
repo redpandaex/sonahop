@@ -60,3 +60,5 @@
 - Latest owner confirmed release only on semantic-version tag pushes whose commit belongs to main history, with fixed Android release signing. Owner explicitly defers key generation and GitHub Secrets setup; do not create/upload keys, merge main, create tags or execute remote publication in this turn. Add fail-fast required Secrets, validate/type-check/compile release tooling, review, commit and push the existing branch. Keep runtime/device tests owner-run.
 
 - Release dependency restoration must use the real pinned pnpm CLI, with no pm_on_fail=ignore wrapper override. Regenerate packageManagerDependencies through pnpm, preserve frozen-lockfile in CI, and validate a clean dependency restore with an unchanged lockfile hash before another release attempt.
+
+- Latest owner explicitly authorized finishing this CI release: from 0.5.2 onward, fix remaining CI-only issues, increment patch versions, commit/push main and create/push new release tags until publication succeeds. Preserve existing tags and fixed signing Secrets. This supersedes earlier per-turn deferrals of version/tag/publication actions; runtime/device tests remain owner-run.

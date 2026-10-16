@@ -41,3 +41,8 @@
 - Static checks: actionlint, release-script type checking and source diff; no runtime/device tests. Verify each pinned Action manifest declares Node 24.
 - Owner explicitly approved upgrading package.json, Cargo.toml, tauri.conf.json and Cargo.lock to 0.5.1, committing and pushing. Keep v0.5.0 unchanged; the owner will create the new release tag.
 - Verification completed: actionlint, release TypeScript check, package formatting, version consistency and offline locked Cargo metadata passed; all 7 pinned Action manifests declare Node 24. Full hosted CI awaits a new tag; no automated tests or device/audio checks ran.
+
+## pnpm lock follow-up (2026-10-16)
+- v0.5.1 reached dependency restoration and reproduced a missing packageManagerDependencies failure under real pnpm 11.25.0. The local fallback pnpm.cmd sets pnpm_config_pm_on_fail=ignore, masking this failure in earlier checks.
+- Real pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile generated the missing environment lock document. Original application lock data remains unchanged.
+- A clean manifest-only directory with CI=true passed real pnpm install --frozen-lockfile (417 packages) and retained its SHA256. No app/device tests ran.

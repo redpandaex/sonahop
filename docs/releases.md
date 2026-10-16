@@ -75,3 +75,14 @@ Android 安装步骤显式使用 platform-tools，不安装已下架的旧 tools
 [GitHub tag/branch 过滤规则](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushbranchestagsbranches-ignoretags-ignore)
 
 已经失败的 v0.5.0 指向旧 workflow，点击 Re-run 不会采用 main 上的新修复。修复版使用 0.5.1，与应用版本一致后创建新 tag；不移动或覆盖旧 tag。
+
+## pnpm 冻结安装报错
+
+pnpm 11 在 devEngines.packageManager 配置下还会锁定 pnpm 自身。pnpm-lock.yaml 的 packageManagerDependencies 缺失时，即使应用依赖没有变化，CI 的 frozen-lockfile 安装仍会失败。
+
+使用与 CI 相同的 pnpm 11.25.0，通过命令更新并验证锁文件：
+
+    pnpm install --lockfile-only --no-frozen-lockfile
+    pnpm install --frozen-lockfile
+
+应保留 CI 的 frozen-lockfile，不手工填写包版本或 integrity。本地验证还需确认 pnpm 入口没有设置 pm_on_fail=ignore；此覆盖会跳过包管理器锁文件检查。发布前在无 node_modules 的目录验证冻结安装，并确认安装前后锁文件哈希不变。

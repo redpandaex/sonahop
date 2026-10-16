@@ -82,7 +82,7 @@ Windows 开机自启默认关闭；用户开启后登录时打开应用，并遵
 
 ## 自动发布
 
-发布流程见 [GitHub Releases 发版说明](docs/releases.md)。只有 main 历史提交上的版本 tag 才构建发布，Android 需要固定签名 Secrets；普通 push 不发布。当前分支尚未合并 main，也未创建发布 tag。
+发布流程见 [GitHub Releases 发版说明](docs/releases.md)。只有 main 历史提交上的版本 tag 才构建发布，Android 需要固定签名 Secrets；普通 push 不发布。失败版本的重试和新 tag 步骤见发版说明。
 
 ## 构建
 

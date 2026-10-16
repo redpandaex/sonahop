@@ -33,3 +33,11 @@
 - 私钥和密码不入 Git、日志或 Release 资产；APK 必须非 debuggable 且固定签名验证成功。
 - 同 tag 重试只能覆盖未公开草稿，不能覆盖已公开 Release。
 - CI 冷启动工具链/SDK/Opus/Gradle路径真实可用，Release JNI 不被 R8 混淆破坏。
+
+## CI follow-up (2026-10-16)
+- Evidence: first v0.5.0 run failed in setup-android before compilation: `Failed to find package 'tools'`, sdkmanager exit 1. Node 20 deprecation is a separate Action-runtime warning.
+- Replace setup-android with pinned v4.0.4 (Node 24), pin command-line tools 15859902, and explicitly install platform-tools only. Silence full license-text output.
+- Also replace the pinned pnpm/upload/download Actions that declare Node 20 with verified Node 24 releases; keep existing inputs, artifact layout and main/tag gates.
+- Static checks: actionlint, release-script type checking and source diff; no runtime/device tests. Verify each pinned Action manifest declares Node 24.
+- Owner explicitly approved upgrading package.json, Cargo.toml, tauri.conf.json and Cargo.lock to 0.5.1, committing and pushing. Keep v0.5.0 unchanged; the owner will create the new release tag.
+- Verification completed: actionlint, release TypeScript check, package formatting, version consistency and offline locked Cargo metadata passed; all 7 pinned Action manifests declare Node 24. Full hosted CI awaits a new tag; no automated tests or device/audio checks ran.

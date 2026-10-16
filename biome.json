@@ -1,0 +1,12 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "extends": ["./apps/sonahop-ui/biome.json"],
+  "files": {
+    "includes": ["scripts/release/**", "tsconfig.release.json", "package.json"]
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  }
+}

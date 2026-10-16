@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: ${{ !github.event.deleted && github.ref_type == 'tag' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      approved: ${{ steps.gate.outputs.approved }}
+      commit: ${{ steps.gate.outputs.commit }}
+      version: ${{ steps.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Require a version tag on main
+        id: gate
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release/check-tag.ts
+
+  build:
+    needs: validate
+    if: ${{ needs.validate.outputs.approved == 'true' }}
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      EXPECTED_RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      RUSTUP_TOOLCHAIN: "1.99.0"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Require fixed Android signing configuration
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          foreach ($name in @('ANDROID_KEYSTORE_BASE64','ANDROID_KEYSTORE_PASSWORD','ANDROID_KEY_ALIAS','ANDROID_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Configure repository Secret $name before publishing. Debug signing is not a fallback."
+            }
+          }
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: "11.25.0"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: pnpm
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Install pinned Rust and Android build tools
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --target aarch64-linux-android
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          sdkmanager.bat "platforms;android-37.0" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "NDK_HOME=$(Join-Path $env:ANDROID_HOME 'ndk/30.0.16248370')" >> $env:GITHUB_ENV
+          "NINJA=$(Join-Path $env:ANDROID_HOME 'cmake/3.22.1/bin/ninja.exe')" >> $env:GITHUB_ENV
+      - name: Restore and type-check build scripts
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm typecheck:release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/release/check-tag.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Windows and unsigned Android release
+        run: ./scripts/build-audio-mvp.ps1 -Platform Both -WindowsInstaller -AndroidRelease -OutputDirectory artifacts/release-build
+      - name: Decode the fixed Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP 'sonahop-release.jks'
+          [IO.File]::WriteAllBytes($keyPath, [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64))
+          "ANDROID_KEYSTORE_PATH=$keyPath" >> $env:GITHUB_ENV
+      - name: Sign and verify the release APK
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version $env:RELEASE_VERSION
+          node scripts/release/prepare-assets.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove the temporary keystore
+        if: always()
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP 'sonahop-release.jks'
+          if (Test-Path -LiteralPath $keyPath -PathType Leaf) {
+            Remove-Item -LiteralPath $keyPath -Force
+          }
+      - name: Transfer verified release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: artifacts/release-assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [validate, build]
+    if: ${{ needs.validate.outputs.approved == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      EXPECTED_RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-assets
+          path: artifacts/release-assets
+      - name: Recheck source, checksums and publish all files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release/publish.ts

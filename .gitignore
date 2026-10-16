@@ -13,3 +13,5 @@ node_modules/
 /output/playwright/
 /.playwright-cli/
 /.deps/
+
+/.secrets/

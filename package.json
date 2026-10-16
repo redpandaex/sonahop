@@ -26,7 +26,8 @@
     "check:fix": "pnpm --filter sonahop-ui check:fix",
     "mvp:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Both",
     "mvp:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Windows",
-    "mvp:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Android"
+    "mvp:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-audio-mvp.ps1 -Platform Android",
+    "typecheck:release": "pnpm --filter sonahop-ui exec tsc -p ../../tsconfig.release.json --noEmit"
   },
   "private": true
 }

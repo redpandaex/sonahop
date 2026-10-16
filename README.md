@@ -80,6 +80,10 @@ Android 内部播放采集需要 Android 10+ 和每次新的系统授权。音�
 
 Windows 开机自启默认关闭；用户开启后登录时打开应用，并遵循自动发现设置，音频仍需手动启动。注册项使用当前 exe 路径，移动程序后需重新设置。
 
+## 自动发布
+
+发布流程见 [GitHub Releases 发版说明](docs/releases.md)。只有 main 历史提交上的版本 tag 才构建发布，Android 需要固定签名 Secrets；普通 push 不发布。当前分支尚未合并 main，也未创建发布 tag。
+
 ## 构建
 
 本机工具：Rust MSVC、Visual Studio C++、CMake/Ninja、JDK21、SDK platform37、NDK30.0.16248370、Rust target aarch64-linux-android。

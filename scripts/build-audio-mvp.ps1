@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('Windows','Android','Both')][string]$Platform='Both', [string]$OutputDirectory='artifacts/audio-mvp', [switch]$WindowsInstaller)
+param([ValidateSet('Windows','Android','Both')][string]$Platform='Both', [string]$OutputDirectory='artifacts/audio-mvp', [switch]$WindowsInstaller, [switch]$AndroidRelease)
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location -LiteralPath $repoRoot
@@ -30,9 +30,9 @@ function Prepare-Opus([string]$Target) {
     if($Target -eq 'Android') {
         $toolchain=Join-Path $env:NDK_HOME 'build/cmake/android.toolchain.cmake'
         if(-not(Test-Path -LiteralPath $toolchain)) { throw 'Set NDK_HOME to Android NDK 30.0.16248370.' }
-        $ninja=Get-Command ninja -ErrorAction SilentlyContinue
-        if(-not $ninja) { throw 'Install Ninja or add the Visual Studio CMake/Ninja directory to PATH.' }
-        $arguments+=@('-G','Ninja',"-DCMAKE_MAKE_PROGRAM=$($ninja.Source)","-DCMAKE_TOOLCHAIN_FILE=$toolchain",'-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-24','-DCMAKE_BUILD_TYPE=Release')
+        $ninjaPath=if($env:NINJA){$env:NINJA}else{(Get-Command ninja -ErrorAction SilentlyContinue).Source}
+        if(-not $ninjaPath -or -not (Test-Path -LiteralPath $ninjaPath -PathType Leaf)) { throw 'Install Ninja or set NINJA to its executable path.' }
+        $arguments+=@('-G','Ninja',"-DCMAKE_MAKE_PROGRAM=$ninjaPath","-DCMAKE_TOOLCHAIN_FILE=$toolchain",'-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-24','-DCMAKE_BUILD_TYPE=Release')
     } else { $arguments+=@('-A','x64') }
     Run-Native $env:CMAKE $arguments
     Run-Native $env:CMAKE @('--build',$nativeBuild,'--config','Release','--parallel','2','--target','install')
@@ -67,10 +67,14 @@ try {
     if($Platform -in @('Android','Both')) {
         if(-not $env:JAVA_HOME -or -not $env:ANDROID_HOME -or -not $env:NDK_HOME) { throw 'Set JAVA_HOME (JDK21), ANDROID_HOME (SDK37) and NDK_HOME (30.0.16248370) before Android packaging.' }
         Prepare-Opus 'Android'
+        $profile=if($AndroidRelease){'release'}else{'debug'}
+        $variant=if($AndroidRelease){'Release'}else{'Debug'}
+        $androidArguments=@('--filter','sonahop-ui','tauri','android','build','--apk','--target','aarch64')
+        if(-not $AndroidRelease){$androidArguments+='--debug'}
         $tauriLog=Join-Path $artifactDir 'android-build.log'
         # Tauri must generate plugin Gradle dependencies and compile current Rust first.
         $savedAction=$ErrorActionPreference; $tauriExit=0
-        try { $ErrorActionPreference="Continue"; & pnpm --filter sonahop-ui tauri android build --debug --apk --target aarch64 2>&1 | Tee-Object -FilePath $tauriLog; $tauriExit=$LASTEXITCODE }
+        try { $ErrorActionPreference="Continue"; & pnpm @androidArguments 2>&1 | Tee-Object -FilePath $tauriLog; $tauriExit=$LASTEXITCODE }
         finally { $ErrorActionPreference=$savedAction }
         if($tauriExit -ne 0) {
             $buildText=Get-Content -LiteralPath $tauriLog -Raw
@@ -78,7 +82,7 @@ try {
             if(-not $symlinkOnly -or $buildText -notmatch 'Finished .*profile') { throw "Tauri Android build failed; read $tauriLog. The symlink fallback will not reuse a library after a compilation failure." }
             $project=Join-Path $repoRoot 'apps/sonahop-ui/src-tauri/gen/android'
             $cargoTarget=if($env:CARGO_TARGET_DIR){[IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)}else{Join-Path $repoRoot 'target'}
-            $library=Join-Path $cargoTarget 'aarch64-linux-android/debug/libsonahop_ui_lib.so'
+            $library=Join-Path $cargoTarget ('aarch64-linux-android/'+$profile+'/libsonahop_ui_lib.so')
             if(-not(Test-Path -LiteralPath $library)) { throw 'Current Rust library is missing.' }
             $generatedSettings=Join-Path $project 'tauri.settings.gradle'
             if(-not(Test-Path -LiteralPath $generatedSettings)) { throw 'Tauri did not generate Android plugin settings.' }
@@ -86,10 +90,14 @@ try {
             $jni=Join-Path $project 'app/src/main/jniLibs/arm64-v8a'
             New-Item -ItemType Directory -Path $jni -Force | Out-Null
             Copy-Item -LiteralPath $library -Destination (Join-Path $jni 'libsonahop_ui_lib.so') -Force
-            Run-Native (Join-Path $project 'gradlew.bat') @('-p',$project,':app:clean',':app:assembleArm64Debug','-x',':app:rustBuildArm64Debug','--console=plain')
+            Run-Native (Join-Path $project 'gradlew.bat') @('-p',$project,':app:clean',(':app:assembleArm64'+$variant),'-x',(':app:rustBuildArm64'+$variant),'--console=plain')
         }
-        $apk=Join-Path $repoRoot 'apps/sonahop-ui/src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk'
-        Copy-Item -LiteralPath $apk -Destination (Join-Path $artifactDir 'sonahop-android-arm64-debug.apk') -Force
+        $apkDirectory=Join-Path $repoRoot ('apps/sonahop-ui/src-tauri/gen/android/app/build/outputs/apk/arm64/'+$profile)
+        $apk=Join-Path $apkDirectory ('app-arm64-'+$profile+$(if($AndroidRelease){'-unsigned'}else{''})+'.apk')
+        if($AndroidRelease -and -not (Test-Path -LiteralPath $apk)){ $apk=Join-Path $apkDirectory 'app-arm64-release.apk' }
+        if(-not (Test-Path -LiteralPath $apk -PathType Leaf)){throw 'Current Android build produced no expected APK.'}
+        $apkName=if($AndroidRelease){'sonahop-android-arm64-release-unsigned.apk'}else{'sonahop-android-arm64-debug.apk'}
+        Copy-Item -LiteralPath $apk -Destination (Join-Path $artifactDir $apkName) -Force
     }
     Get-ChildItem -LiteralPath $artifactDir -File | Where-Object Extension -in '.exe','.apk' |
         Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize

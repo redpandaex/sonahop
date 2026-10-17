@@ -62,3 +62,5 @@
 - Release dependency restoration must use the real pinned pnpm CLI, with no pm_on_fail=ignore wrapper override. Regenerate packageManagerDependencies through pnpm, preserve frozen-lockfile in CI, and validate a clean dependency restore with an unchanged lockfile hash before another release attempt.
 
 - Latest owner explicitly authorized finishing this CI release: from 0.5.2 onward, fix remaining CI-only issues, increment patch versions, commit/push main and create/push new release tags until publication succeeds. Preserve existing tags and fixed signing Secrets. This supersedes earlier per-turn deferrals of version/tag/publication actions; runtime/device tests remain owner-run.
+
+- The approved CI recovery is complete: v0.5.3 was publicly released on 2026-10-17 (workflow run 38996139495, source 95c0314). All platform builds, APK v2/v3 signature checks, asset transfer and publication passed; five assets and hashes were verified. This per-release retry authorization does not extend to unrelated future product releases; device/audio acceptance remains owner-run.

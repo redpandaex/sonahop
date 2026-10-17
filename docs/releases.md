@@ -70,7 +70,7 @@ Android 安装步骤显式使用 platform-tools，不安装已下架的旧 tools
 
 发布阶段核对 tag/main、产物来源和 SHA256，上传后、公开前再检查一次远端 tag 与 main；支持普通和附注 tag，远端 tag 被删除或移动时中止。上传失败时留在未公开草稿，可以在同一个 tag 的 workflow 上重试。已公开版本不覆盖、不自动删除；修复发布内容时应使用新版本 tag。
 
-本轮只新增并检查发布代码，没有生成正式密钥、配置 GitHub Secrets、创建 tag、合并 main 或触发远端 Release。首次 CI 和实际正式签名仍待你的配置。
+首个完整自动发布版本 [v0.5.3](https://github.com/redpandaex/sonahop/releases/tag/v0.5.3) 已于 2026-10-17 发布。Windows 与 Android 编译、固定 APK 签名验证、跨 job 产物传递和最终公开发布均通过；三个二进制的大小与 SHA256 已对照公开 Release 核对。音频和真机行为仍由用户验收。
 
 [GitHub tag/branch 过滤规则](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushbranchestagsbranches-ignoretags-ignore)
 

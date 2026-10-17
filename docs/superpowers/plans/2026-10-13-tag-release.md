@@ -51,3 +51,9 @@
 - v0.5.2 completed Android compilation and produced universal/release/app-universal-release-unsigned.apk, then failed because the build script only selected arm64/release output. The local symlink fallback had hidden the normal-path mismatch.
 - Installed Tauri CLI help confirms --split-per-abi; explicitly combine it with --target aarch64. Both normal and fallback paths now use ARM64 output, and missing-APK errors include the expected path and log.
 - Prepare 0.5.3 through the approved patch-release process; retain all existing tags. Java source/target 8 warnings and red Info lines did not cause the CI failure.
+
+## Delivery verified (2026-10-17)
+- v0.5.3 source commit 95c0314e6ac59f3e7603ec4e402157850c25fcbc published at https://github.com/redpandaex/sonahop/releases/tag/v0.5.3. Workflow run 38996139495 completed validate/build/publish successfully.
+- Hosted build produced arm64/release/app-arm64-release-unsigned.apk; fixed PKCS12 signing and v2/v3 verification succeeded.
+- All five public assets exist. Binary byte counts and GitHub SHA256 digests match release-manifest.json and SHA256SUMS.txt. Release is public and not prerelease/draft.
+- Independent read-only delivery review returned no Critical/Important issues; runtime/device/audio acceptance remains user-run. Existing v0.5.0/v0.5.1/v0.5.2 tags preserved.

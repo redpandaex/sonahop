@@ -69,7 +69,7 @@ try {
         Prepare-Opus 'Android'
         $profile=if($AndroidRelease){'release'}else{'debug'}
         $variant=if($AndroidRelease){'Release'}else{'Debug'}
-        $androidArguments=@('--filter','sonahop-ui','tauri','android','build','--apk','--target','aarch64')
+        $androidArguments=@('--filter','sonahop-ui','tauri','android','build','--apk','--split-per-abi','--target','aarch64')
         if(-not $AndroidRelease){$androidArguments+='--debug'}
         $tauriLog=Join-Path $artifactDir 'android-build.log'
         # Tauri must generate plugin Gradle dependencies and compile current Rust first.
@@ -95,7 +95,7 @@ try {
         $apkDirectory=Join-Path $repoRoot ('apps/sonahop-ui/src-tauri/gen/android/app/build/outputs/apk/arm64/'+$profile)
         $apk=Join-Path $apkDirectory ('app-arm64-'+$profile+$(if($AndroidRelease){'-unsigned'}else{''})+'.apk')
         if($AndroidRelease -and -not (Test-Path -LiteralPath $apk)){ $apk=Join-Path $apkDirectory 'app-arm64-release.apk' }
-        if(-not (Test-Path -LiteralPath $apk -PathType Leaf)){throw 'Current Android build produced no expected APK.'}
+        if(-not (Test-Path -LiteralPath $apk -PathType Leaf)){throw "Current Android build produced no expected APK at $apk. Read $tauriLog."}
         $apkName=if($AndroidRelease){'sonahop-android-arm64-release-unsigned.apk'}else{'sonahop-android-arm64-debug.apk'}
         Copy-Item -LiteralPath $apk -Destination (Join-Path $artifactDir $apkName) -Force
     }

@@ -46,3 +46,8 @@
 - v0.5.1 reached dependency restoration and reproduced a missing packageManagerDependencies failure under real pnpm 11.25.0. The local fallback pnpm.cmd sets pnpm_config_pm_on_fail=ignore, masking this failure in earlier checks.
 - Real pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile generated the missing environment lock document. Original application lock data remains unchanged.
 - A clean manifest-only directory with CI=true passed real pnpm install --frozen-lockfile (417 packages) and retained its SHA256. No app/device tests ran.
+
+## Android artifact follow-up (2026-10-17)
+- v0.5.2 completed Android compilation and produced universal/release/app-universal-release-unsigned.apk, then failed because the build script only selected arm64/release output. The local symlink fallback had hidden the normal-path mismatch.
+- Installed Tauri CLI help confirms --split-per-abi; explicitly combine it with --target aarch64. Both normal and fallback paths now use ARM64 output, and missing-APK errors include the expected path and log.
+- Prepare 0.5.3 through the approved patch-release process; retain all existing tags. Java source/target 8 warnings and red Info lines did not cause the CI failure.

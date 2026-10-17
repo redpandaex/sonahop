@@ -45,8 +45,8 @@ Secrets 未配置时 workflow 会早期失败，不发布 Windows 或 debug APK�
 
     git switch main
     git pull --ff-only origin main
-    git tag -a v0.5.2 -m "SonaHop 0.5.2"
-    git push origin v0.5.2
+    git tag -a v0.5.3 -m "SonaHop 0.5.3"
+    git push origin v0.5.3
 
 4. 等 GitHub Actions 的 Release workflow 完成，再从 Releases 下载。当前支持三个二进制产物，所有平台成功后才公开发布。
 
@@ -62,7 +62,7 @@ CI 使用 Rust 1.99.0、Node 24、pnpm 11.25.0、JDK 21、Android SDK platforms;
 
 它只生成 unsigned Release APK；签名脚本读取环境中的 ANDROID_KEYSTORE_PATH、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD：
 
-    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.2
+    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.3
 
 签名工具先拒绝 debuggable APK，再做 16KiB ZIP 对齐、v2/v3 签名和验证。签名密码只以环境变量名称传给工具，临时 keystore 不上传；CI 完成或失败都会清除临时文件。
 
@@ -86,3 +86,5 @@ pnpm 11 在 devEngines.packageManager 配置下还会锁定 pnpm 自身。pnpm-l
     pnpm install --frozen-lockfile
 
 应保留 CI 的 frozen-lockfile，不手工填写包版本或 integrity。本地验证还需确认 pnpm 入口没有设置 pm_on_fail=ignore；此覆盖会跳过包管理器锁文件检查。发布前在无 node_modules 的目录验证冻结安装，并确认安装前后锁文件哈希不变。
+
+Android 打包显式使用 --split-per-abi --target aarch64，让正常 Tauri 构建与 Windows 符号链接回退都生成 arm64 目录中的 APK。未指定 split-per-abi 时，Tauri 会输出 universal APK，与当前 ARM64 产物路径不一致。

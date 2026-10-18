@@ -1,5 +1,3 @@
-import { normalizeStoredAddress } from "./connection-address.ts";
-
 export type AudioMode = "listen" | "microphone";
 export type ConnectionRole = "host" | "client";
 export type SendSource = "system" | "microphone";
@@ -10,8 +8,6 @@ export interface Preferences {
   volume: number;
   theme: ThemePreference;
   sourceId: string;
-  computerName: string;
-  computerAddress: string;
   connectionRole: ConnectionRole | null;
   sendSource: SendSource;
   inputDeviceId: string;
@@ -27,8 +23,6 @@ export const DEFAULT_PREFERENCES: Readonly<Preferences> = Object.freeze({
   volume: 70,
   theme: "light",
   sourceId: "",
-  computerName: "我的服务器",
-  computerAddress: "",
   connectionRole: null,
   sendSource: "system",
   inputDeviceId: "",
@@ -57,8 +51,6 @@ export function readPreferences(raw: string | null): Preferences {
           ? Math.round(Math.min(100, Math.max(0, data.volume)))
           : 70,
       sourceId: text(data.sourceId, "", 512),
-      computerName: text(data.computerName, "我的服务器", 64) || "我的服务器",
-      computerAddress: normalizeStoredAddress(text(data.computerAddress, "", 255)),
       connectionRole:
         data.connectionRole === "host" || data.connectionRole === "client"
           ? data.connectionRole

@@ -1,7 +1,7 @@
 use super::workers::WorkerMode;
 use super::{AudioControl, AudioLane, AudioService, MicRequest, Phase};
 use sonahop_audio::{MediaPacket, StreamKind, parse_stream_id, stream_id_text};
-use sonahop_link::{LinkEvent, LinkRole};
+use sonahop_link::{DisconnectReason, LinkEvent, LinkRole};
 
 impl AudioService {
     pub(super) async fn handle_event(&self, event: LinkEvent) {
@@ -59,22 +59,24 @@ impl AudioService {
                     }
                 }
             }
-            LinkEvent::Disconnected { peer_id } => {
+            LinkEvent::Disconnected { peer_id, reason } => {
                 let _lock = self.lifecycle.lock().await;
                 let (listen, mic) = {
                     let mut state = self.shared.lock();
                     state.requests.retain(|r| r.peer_id != peer_id);
                     let removed = state.listeners.remove(&peer_id).is_some();
                     (
-                        removed && (state.role == LinkRole::Client || state.listeners.is_empty()),
+                        removed && state.role == LinkRole::Client,
                         state.microphone.peer_id.as_deref() == Some(peer_id.as_str()),
                     )
                 };
                 for (kind, stop) in [(StreamKind::Listen, listen), (StreamKind::Microphone, mic)] {
                     if stop {
                         self.stop_lane_inner(kind, "设备连接已断开", false).await;
-                        self.shared.lock().lane_mut(kind).error =
-                            Some("设备连接已断开，请重新连接并手动开始".into());
+                        if let DisconnectReason::Failed(error) = &reason {
+                            self.shared.lock().lane_mut(kind).error =
+                                Some(format!("设备连接已断开：{error}"));
+                        }
                     }
                 }
             }
@@ -205,6 +207,7 @@ impl AudioService {
                 request_id,
             } => self.host_stop_peer(&peer, lane, &message, request_id).await,
             AudioControl::ListenOffer { .. }
+            | AudioControl::ListenPaused { .. }
             | AudioControl::MicGrant { .. }
             | AudioControl::Capabilities { .. } => {}
         }
@@ -219,29 +222,23 @@ impl AudioService {
         let Some(request) = request else {
             return;
         };
-        let (stop_listen, stop_mic) = {
+        let stop_mic = {
             let mut state = self.shared.lock();
             let may_listen = direction.is_none() || matches!(direction, Some(AudioLane::Listen));
             let may_mic = direction.is_none() || matches!(direction, Some(AudioLane::Microphone));
-            let removed = may_listen
-                && state.listeners.get(peer) == Some(&request)
-                && state.listeners.remove(peer).is_some();
+            if may_listen && state.listeners.get(peer) == Some(&request) {
+                state.listeners.remove(peer);
+            }
             if may_mic {
                 state
                     .requests
                     .retain(|r| r.peer_id != peer || r.request_id != request);
             }
-            (
-                removed && state.listeners.is_empty() && state.listen.phase == Phase::Active,
-                may_mic
-                    && state.microphone.peer_id.as_deref() == Some(peer)
-                    && state.microphone.request_id.as_ref() == Some(&request),
-            )
+            // Sharing belongs to the host session, not to the last subscriber.
+            may_mic
+                && state.microphone.peer_id.as_deref() == Some(peer)
+                && state.microphone.request_id.as_ref() == Some(&request)
         };
-        if stop_listen {
-            self.stop_lane_inner(StreamKind::Listen, reason, false)
-                .await;
-        }
         if stop_mic {
             self.stop_lane_inner(StreamKind::Microphone, reason, false)
                 .await;
@@ -252,6 +249,17 @@ impl AudioService {
             AudioControl::Capabilities {
                 remote_microphone, ..
             } => self.shared.lock().remote_microphone_supported = Some(remote_microphone),
+            AudioControl::ListenPaused { request_id } => {
+                let expected = {
+                    let state = self.shared.lock();
+                    state.listeners.get(&peer) == Some(&request_id)
+                        && state.listen.request_id.as_ref() == Some(&request_id)
+                        && state.listen.phase != Phase::Idle
+                };
+                if expected {
+                    self.pause_listening().await;
+                }
+            }
             AudioControl::ListenOffer {
                 stream_id,
                 source,
@@ -279,10 +287,31 @@ impl AudioService {
                 }
                 let result = match parse_stream_id(&stream_id) {
                     Ok(id) => {
-                        let device = self.shared.lock().listen.output_device_id.clone();
-                        self.shared.lock().remote_source = source;
-                        self.launch(WorkerMode::Playback { device }, StreamKind::Listen, id)
-                            .await
+                        let (device, reuse) = {
+                            let mut state = self.shared.lock();
+                            // A worker error can end the subscription outside the lifecycle lock.
+                            if state.listen.phase != Phase::Waiting
+                                || state.listeners.get(&peer) != request_id.as_ref()
+                                || state.listen.request_id != request_id
+                            {
+                                return;
+                            }
+                            state.remote_source = source;
+                            let lane = &mut state.listen;
+                            let reuse = lane.worker.is_some();
+                            if reuse {
+                                lane.stream_id = Some(id);
+                                lane.phase = Phase::Active;
+                                lane.error = None;
+                            }
+                            (lane.output_device_id.clone(), reuse)
+                        };
+                        if reuse {
+                            Ok(())
+                        } else {
+                            self.launch(WorkerMode::Playback { device }, StreamKind::Listen, id)
+                                .await
+                        }
                     }
                     Err(error) => Err(error),
                 };

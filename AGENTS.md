@@ -1,66 +1,50 @@
 # SonaHop project guidance
 
 ## Working agreements
-- Communicate in Chinese and use Superpowers as the active development workflow.
-- Use only lightweight Superpowers stage documents for planning; do not introduce a second specification workflow.
-- Prefer official CLI commands to scaffold projects and manage dependencies: cargo new/add/remove and pnpm create/add/remove.
-- Manually edit only configuration the CLI does not cover and application implementation.
-- When the owner explicitly requests a plan and execution together, create a reviewable plan and execute the authorized scope without repeated process approval. Ask about material scope/acceptance uncertainty or sensitive real-device actions.
-- Use small stage plans and implement the authorized scope directly. The owner currently prefers to run tests and interactive verification personally: do not run automated tests, browser/device tests or long verification builds unless explicitly authorized. When validation is needed, stop and provide concise commands and acceptance steps.
-- Keep actual build/test evidence separate from unverified physical-device claims.
-- Do not copy or use SoundPush as an architecture or implementation reference.
+- Communicate in Chinese. Use lightweight Superpowers stage documents; do not introduce a second specification workflow.
+- Prefer official Cargo/Tauri/pnpm/shadcn CLI operations for scaffolding and dependencies. Edit implementation and unsupported configuration normally.
+- Execute already-authorized scope without repeated process approval; clarify material device/acceptance uncertainty.
+- The owner runs automated tests, browser/app/device/audio checks personally. Static type/compiler checks and explicitly requested packaging are allowed; never equate compilation with physical acceptance.
+- Do not use SoundPush as an architecture or implementation reference.
 
-## Architecture
-- Shared Rust core is independent of OS APIs and Tauri.
-- Platform backends depend on core interfaces; application entry points compose them.
-- Add real platform implementations progressively rather than empty claimed support.
-- Tauri remains the planned desktop/mobile UI; native Android services own background audio.
-- Fixed codec settings, bounded queues and diagnostics precede adaptive optimization.
+## Architecture and product scope
+- Shared Rust core is independent of OS APIs and Tauri. Platform adapters implement real audio; Tauri composes UI and services.
+- Windows and Android may each share or listen. Confirmed devices: Windows 11, Xiaomi 17 Pro Max and Lenovo Y700 generation 4 on Android 16.
+- One host supports at most two listeners. System audio and one independently approved remote microphone may run concurrently; an Android listener may also upload its microphone.
+- Native Android foreground services own background audio. Internal playback capture requires fresh MediaProjection consent each start, excludes this app, and must not record the hardware microphone or request audio focus.
+- Microphone capture is explicit. Never restore recording after reopening, reconnecting, permission revocation or notification stop.
+- Windows sharing uses process loopback. Receiving uses unit gain/system device volume; microphone gain is separate.
+- Microphone monitoring/mixing and feedback suppression remain deferred. The owner confirmed phone-mic playback through PC Type-C headphones is normal; do not misclassify that scenario as virtual-device failure.
+- Use existing user-installed virtual endpoints with explicit playback/recording pairing. Never install/bundle drivers, select physical speakers as virtual microphones, change OS defaults, VPN/routes/firewall, or depend on AudioRelay proprietary interfaces.
+- Windows autostart defaults off and changes only through the user's toggle.
 
-## Confirmed product milestone
-- Windows 11 host; Xiaomi 17 Pro Max and Lenovo Y700 generation 4, both Android 16.
-- Listen mode supports two Android listeners.
-- Windows may share system audio and receive one selected Android microphone concurrently. An Android client may listen and upload its microphone concurrently; a second tablet may also listen.
-- Initial microphone support uses an existing user-installed Windows virtual audio path.
-- USB is available for deployment/diagnostics; dedicated USB audio is a later scope decision.
+## Current interaction and lifecycle
+- Wire protocol v3 uses fresh anonymous X25519, transcript-bound HKDF and directional AES-GCM. No PIN or connection approval; encryption does not authenticate device identity.
+- Preserve handshake/rate/frame bounds, atomic two-peer reservations, counter/replay protection and explicit remote microphone approval.
+- Discovery starts automatically with the app/role. Player connect waits for a real peer before one-shot listen; disconnect stops its lanes.
+- Hosts prepare system/app audio by default; Android consent remains mandatory. A saved microphone choice does not start capture automatically.
+- Host pause/source changes retain listener subscriptions and the receiver's existing sink. Reset only the decoder for the authorized new stream; discard old stream packets/PCM. Full/notification stop is terminal.
+- Record Local/Remote/Failed stop reasons before audio teardown. Allow all existing controls, including pending handshakes, at most two seconds for Bye before generation shutdown.
+- Keep lifecycle/epoch guards against late starts, failed/cancelled intents and retry loops. An ordinary listener leaving does not stop the host's chosen source session.
+- No saved shared-device/address-book module or last-address memory. Manual IP is transient, initially blank and cleared after connection; old bookmark preference fields are dropped while audio/theme preferences remain.
+- Display/copy/manual entry use IP only with fixed internal ports. Accept pasted legacy IP:port syntax. Windows displays IEEE80211 Wi-Fi addresses; Android retains eligible addresses. Display filtering must not restrict discovery/socket interfaces.
+- One bounded main content scroller per platform. Android native parent owns system-bar/cutout padding and clears only handled insets; preserve IME dispatch.
+- Status colors follow actual state: gray idle, blue discovering, amber connecting/waiting, green active, red error.
 
-## Current stage
-- Follow docs/superpowers/plans/2026-10-13-tag-release.md for the release-workflow stage; the completed optional-device/duplex stage is recorded in docs/superpowers/plans/2026-10-13-optional-devices-duplex.md; the role architecture remains in docs/superpowers/specs/2026-10-12-multi-role-audio-design.md. Earlier UI, LAN, exclusive/independent audio and diagnostics documents record historical stages.
-- The owner authorized completing the confirmed audio MVP overnight and will run tests in the morning.
-- Current source includes authenticated LAN + audio. Final Windows release, Android ARM64 debug and frontend production builds succeeded; APK signature/permissions/JNI exports were checked. No automated tests, app execution or physical-device/audio verification ran. Do not equate compilation with working device proof.
-- Old artifacts/ui-preview binaries do not include the new LAN/audio source. Use scripts/build-audio-mvp.ps1 when the owner runs packaging; do not silently substitute old binaries.
-- Windows and Android may each host or play. Server source is explicitly system playback or a local microphone. Windows process loopback remains the system source; Android uses one-time MediaProjection playback capture. Player output is local and never changes OS defaults. The WAV CLI remains diagnostic.
-- No automatic microphone restart. Connection, approval, user audio start, hardware initialization, error and stop states must be real.
-- Virtual audio render sink selection is explicit and uses user-installed software; never auto-select a physical speaker.
-- The latest overnight request authorizes final exe/APK packaging so the owner can test tomorrow. Compile/package and repair compilation errors; do not run automated tests, launch apps, or interact with audio/devices. Earlier user-run-only build guidance applies to intermediate verification, not this final delivery.
-## Frontend tooling
-- Use Biome for formatting/lint and Tailwind CSS 4 with the Vite plugin for styles. shadcn/ui Radix components live in apps/sonahop-ui/src/components/ui.
-- Use the official shadcn CLI to add components; keep the current data-theme light/dark/system behavior and native palette.
-- The owner runs tests and interactive validation personally. Final packaging is authorized by the latest overnight request; do not launch tests, apps or device/audio verification automatically. Provide concise manual acceptance steps with the built artifacts.
+## Tooling and delivery
+- Frontend uses Biome, Tailwind CSS 4 and existing shadcn/Radix components. Run UI Biome from apps/sonahop-ui to avoid nested root configuration errors.
+- Use the real pinned pnpm CLI (11.25.0), not a wrapper setting pm_on_fail=ignore. Preserve frozen-lockfile checks and CLI-generated package-manager lock metadata.
+- Use scripts/build-audio-mvp.ps1 for Windows/Android packaging. The symbol-link fallback may use only the library from that same successful Rust build.
+- Keep signing material in ignored local paths and pass passwords through environment names; never print, commit or upload secrets. Android release signing uses the existing fixed certificate.
+- Published v0.5.3 uses the old wire protocol; current local wire-v3 builds also retain version0.5.3. Both devices need the current local build.
+- Local delivery records, checksums and signed packages are under artifacts/ui-simplified. Earlier folders are historical. Owner reported successful physical checks; retain exact acceptance boundaries in the stage plan.
+- Current owner instruction authorizes final review, removal of proven-unneeded files, and committing/pushing this work on main. It does not authorize a version bump, tag or remote Release.
+- Release workflow runs only on version-tag pushes whose commit belongs to main history, with fixed Android signing. The earlier automatic CI-retry authorization ended when v0.5.3 was published.
+- Preserve build dependencies, target-platform assets, current user data and signing keys when pruning generated/unused files.
 
-## Current accepted changes
-- The owner asked to implement volume-control removal, default-off Windows autostart and independent Windows listen/microphone lanes, then they will test.
-- The owner reopened disconnection work with send-blocked/heartbeat-timeout screenshots. Follow docs/superpowers/plans/2026-10-12-link-diagnostics.md; implement bounded logs and decouple connection reads from writes. Device verification remains owner-run.
-- Microphone monitoring/mixing is explicitly deferred: keep the phone microphone and Windows system-audio stream independent.
-- Native Windows virtual playback/capture endpoints remain a future driver-backed milestone. Do not install drivers or change OS defaults; record the default-off, capability-gated proposal.
-- Receiving playback uses unit gain and the Android media-volume keys; microphone gain is retained.
-- Autostart registration happens only after a user toggle, never automatically during app startup or agent verification.
-- Android hosting, phone-to-phone audio and Windows player are this stage's authorized scope. Role and platform are independent; role switching stops old audio/connections. Servers support two players. A Windows host can receive one remote microphone while sharing; an Android client may concurrently listen and upload one microphone.
-- Android playback capture must not request audio focus or record the hardware microphone. Obtain fresh consent for every start, run the mediaProjection foreground service first, and release when revoked/stopped. JNI callbacks must match their session and mono/stereo packet size.
-- Windows microphone capture requires an available recording endpoint; no device means a disabled input choice and a clear explanation. Do not create virtual devices or install drivers.
-
-- The owner authorized automatic local-network discovery on app startup and after role changes, removal of normal network toggles, shared-device IPv4 display, Android single-app audio selection and shared/listen/settings bottom navigation. Pairing and audio still require user action. TUN is not a confirmed cause; do not alter system VPN, routes or firewall. Microphone squeal remains deferred.
-
-- Latest UI feedback supersedes the earlier Android app-selector design: remove custom capture-scope/app lists, UID filters, package-query command and preferences entirely, using Android's normal consent and app-selection flow. Do not claim that system screen selection guarantees additional audio UID isolation. Keep all local addresses after the owner withdrew WLAN-only filtering. Simplify visible explanations, improve dark contrast, and keep desktop scrolling inside the main content area. The owner confirmed Windows/Android discovery works in 0.4.0; preserve that network implementation.
-
-- Latest clarification supersedes the all-address presentation rule on Windows only: display Wi-Fi interface addresses identified by IEEE80211 type; Android keeps all previous eligible addresses. Discovery and TCP continue to use all eligible interfaces. Display/copy/manual entry are IP-only with a fixed internal port; migrate legacy saved/pasted endpoints. Text fields use one subtle focus treatment, preserving keyboard and error visibility. AudioRelay microphone docs inform the existing phone-host/Windows-client/virtual-cable workflow only; no new driver, automatic virtual-device selection or OS default change is authorized.
-
-- Latest user cancelled own kernel-driver work and authorized VB-CABLE integration plus finishing the existing duplex stage. Reuse WASAPI, recommend detected VB-CABLE/Voicemeeter endpoint pairs, allow explicit advanced routing, and provide scoped official links. Driver installation remains user-operated and independent of the app installer. No AudioRelay proprietary interface dependency. Package current exe/APK/NSIS, review, commit and push the existing branch; user performs runtime tests.
-
-- Latest owner confirmed release only on semantic-version tag pushes whose commit belongs to main history, with fixed Android release signing. Owner explicitly defers key generation and GitHub Secrets setup; do not create/upload keys, merge main, create tags or execute remote publication in this turn. Add fail-fast required Secrets, validate/type-check/compile release tooling, review, commit and push the existing branch. Keep runtime/device tests owner-run.
-
-- Release dependency restoration must use the real pinned pnpm CLI, with no pm_on_fail=ignore wrapper override. Regenerate packageManagerDependencies through pnpm, preserve frozen-lockfile in CI, and validate a clean dependency restore with an unchanged lockfile hash before another release attempt.
-
-- Latest owner explicitly authorized finishing this CI release: from 0.5.2 onward, fix remaining CI-only issues, increment patch versions, commit/push main and create/push new release tags until publication succeeds. Preserve existing tags and fixed signing Secrets. This supersedes earlier per-turn deferrals of version/tag/publication actions; runtime/device tests remain owner-run.
-
-- The approved CI recovery is complete: v0.5.3 was publicly released on 2026-10-17 (workflow run 38996139495, source 95c0314). All platform builds, APK v2/v3 signature checks, asset transfer and publication passed; five assets and hashes were verified. This per-release retry authorization does not extend to unrelated future product releases; device/audio acceptance remains owner-run.
+## References
+- Current stage and acceptance evidence: docs/superpowers/plans/2026-10-17-one-click-audio-viewport.md.
+- User/build instructions: README.md. Release process: docs/releases.md.
+- Architecture: docs/superpowers/specs/2026-10-12-multi-role-audio-design.md.
+- Virtual routing: docs/superpowers/plans/2026-10-13-optional-devices-duplex.md and its linked design.
+- Older stage documents record history; current agreements above supersede earlier PIN/manual-start assumptions.

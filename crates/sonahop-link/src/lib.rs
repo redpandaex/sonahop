@@ -1,4 +1,4 @@
-//! PIN-authenticated, encrypted SonaHop v2 LAN control and media transport.
+//! Anonymous X25519-encrypted SonaHop v3 LAN control and media transport.
 mod crypto;
 mod diagnostics;
 mod discovery;
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -30,7 +30,6 @@ pub enum ClientState {
     Idle,
     Discovering,
     Connecting,
-    AwaitingApproval,
     Connected,
 }
 #[derive(Clone, Debug, Serialize)]
@@ -40,14 +39,6 @@ pub struct DiscoveredHost {
     pub name: String,
     pub address: String,
     pub port: u16,
-}
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinkRequest {
-    pub id: String,
-    pub name: String,
-    pub address: String,
-    pub verification_code: String,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,24 +56,39 @@ pub struct LinkSnapshot {
     pub local_addresses: Vec<String>,
     pub port: u16,
     pub discovered: Vec<DiscoveredHost>,
-    pub requests: Vec<LinkRequest>,
     pub peers: Vec<LinkPeer>,
     pub client_state: ClientState,
-    pub verification_code: Option<String>,
-    pub pairing_code: Option<String>,
     pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", content = "message", rename_all = "camelCase")]
+pub enum DisconnectReason {
+    Local,
+    Remote,
+    Failed(String),
 }
 
 #[derive(Clone, Debug)]
 pub enum LinkEvent {
-    Connected { peer_id: String },
-    Disconnected { peer_id: String },
-    Control { peer_id: String, payload: Value },
-    Media { peer_id: String, payload: Vec<u8> },
+    Connected {
+        peer_id: String,
+    },
+    Disconnected {
+        peer_id: String,
+        reason: DisconnectReason,
+    },
+    Control {
+        peer_id: String,
+        payload: Value,
+    },
+    Media {
+        peer_id: String,
+        payload: Vec<u8>,
+    },
 }
 
 pub(crate) enum Command {
-    Answer(bool),
     Disconnect,
 }
 pub(crate) struct MediaEnvelope {
@@ -94,8 +100,8 @@ pub(crate) struct Control {
     pub controls: mpsc::Sender<Value>,
     pub media: mpsc::Sender<MediaEnvelope>,
     pub connected: bool,
-    pub answered: bool,
-    pub approval_deadline: Option<Instant>,
+    pub local_stop_requested: bool,
+    pub remote_stop_received: bool,
 }
 pub(crate) struct Outbound {
     pub commands: mpsc::Receiver<Command>,
@@ -112,8 +118,8 @@ pub(crate) fn channels() -> (Control, Outbound) {
             controls: controls_tx,
             media: media_tx,
             connected: false,
-            answered: false,
-            approval_deadline: None,
+            local_stop_requested: false,
+            remote_stop_received: false,
         },
         Outbound {
             commands,
@@ -125,6 +131,7 @@ pub(crate) fn channels() -> (Control, Outbound) {
 pub(crate) struct State {
     pub snapshot: LinkSnapshot,
     pub generation: u64,
+    pub stopping: bool,
     pub discovered: HashMap<String, (DiscoveredHost, Instant)>,
     pub controls: HashMap<String, Control>,
     pub tasks: Vec<JoinHandle<()>>,
@@ -157,7 +164,11 @@ pub(crate) fn spawn(
         state.tasks.push(tokio::spawn(task));
     }
 }
-fn shutdown(state: &mut State, events: &broadcast::Sender<LinkEvent>) -> Vec<JoinHandle<()>> {
+fn shutdown(
+    state: &mut State,
+    events: &broadcast::Sender<LinkEvent>,
+    reason: DisconnectReason,
+) -> Vec<JoinHandle<()>> {
     state.generation = state.generation.wrapping_add(1);
     if let Some(cancel) = state.cancel.take() {
         let _ = cancel.send(true);
@@ -165,15 +176,14 @@ fn shutdown(state: &mut State, events: &broadcast::Sender<LinkEvent>) -> Vec<Joi
     for peer in &state.snapshot.peers {
         let _ = events.send(LinkEvent::Disconnected {
             peer_id: peer.id.clone(),
+            reason: reason.clone(),
         });
     }
     state.snapshot.running = false;
+    state.stopping = false;
     state.snapshot.discovered.clear();
-    state.snapshot.requests.clear();
     state.snapshot.peers.clear();
     state.snapshot.client_state = ClientState::Idle;
-    state.snapshot.verification_code = None;
-    state.snapshot.pairing_code = None;
     state.discovered.clear();
     state.controls.clear();
     let tasks = std::mem::take(&mut state.tasks);
@@ -220,7 +230,15 @@ async fn drain_tasks(inner: &Arc<Inner>) {
 pub(crate) fn fail_service(inner: &Inner, generation: u64, error: String) {
     let mut state = inner.lock();
     if current(&state, generation) {
-        state.tasks = shutdown(&mut state, &inner.events);
+        inner.diagnostics.log(
+            "link-failed",
+            serde_json::json!({"generation":generation,"reason":error}),
+        );
+        state.tasks = shutdown(
+            &mut state,
+            &inner.events,
+            DisconnectReason::Failed(error.clone()),
+        );
         state.snapshot.last_error = Some(error);
     }
 }
@@ -229,42 +247,60 @@ pub(crate) fn finish_connection(inner: &Inner, generation: u64, id: &str, error:
     if !current(&state, generation) {
         return;
     }
+    let Some(control) = state.controls.remove(id) else {
+        return;
+    };
     let connected = state.snapshot.peers.iter().any(|peer| peer.id == id);
-    state.controls.remove(id);
-    state.snapshot.requests.retain(|request| request.id != id);
+    let reason = if control.local_stop_requested {
+        Some(DisconnectReason::Local)
+    } else if control.remote_stop_received {
+        Some(DisconnectReason::Remote)
+    } else {
+        error
+            .clone()
+            .map(DisconnectReason::Failed)
+            .or_else(|| connected.then(|| DisconnectReason::Failed("连接意外结束".into())))
+    };
     state.snapshot.peers.retain(|peer| peer.id != id);
     if connected {
-        let _ = inner.events.send(LinkEvent::Disconnected {
-            peer_id: id.to_owned(),
-        });
+        if let Some(reason) = &reason {
+            let _ = inner.events.send(LinkEvent::Disconnected {
+                peer_id: id.to_owned(),
+                reason: reason.clone(),
+            });
+        }
     }
-    if let Some(message) = &error {
-        state.snapshot.last_error = Some(message.clone());
+    let user_error = match &reason {
+        Some(DisconnectReason::Failed(message)) => Some(message.clone()),
+        _ => None,
+    };
+    // Unpublished host handshakes belong in diagnostics, not the host's session error.
+    if connected {
+        if let Some(message) = &user_error {
+            state.snapshot.last_error = Some(message.clone());
+        }
     }
     inner.diagnostics.log(
         "connection-ended",
-        serde_json::json!({"peerId": id, "connected": connected, "reason": error}),
+        serde_json::json!({"peerId":id,"generation":generation,"connected":connected,"reason":reason,"transportError":error}),
     );
     if state.snapshot.role == LinkRole::Client {
         state.snapshot.client_state = ClientState::Discovering;
-        state.snapshot.verification_code = None;
-        state.snapshot.last_error = error;
+        state.snapshot.last_error = user_error;
     }
 }
 pub(crate) fn publish_connected(inner: &Inner, generation: u64, peer: LinkPeer) -> bool {
     let mut state = inner.lock();
-    if !current(&state, generation) {
+    if !current(&state, generation) || state.stopping {
         return false;
     }
     let Some(control) = state.controls.get_mut(&peer.id) else {
         return false;
     };
+    if control.local_stop_requested {
+        return false;
+    }
     control.connected = true;
-    control.approval_deadline = None;
-    state
-        .snapshot
-        .requests
-        .retain(|request| request.id != peer.id);
     if state.snapshot.role == LinkRole::Client {
         state.snapshot.client_state = ClientState::Connected;
     }
@@ -300,14 +336,12 @@ impl LinkService {
                         local_addresses: Vec::new(),
                         port: CONTROL_PORT,
                         discovered: Vec::new(),
-                        requests: Vec::new(),
                         peers: Vec::new(),
                         client_state: ClientState::Idle,
-                        verification_code: None,
-                        pairing_code: None,
                         last_error: None,
                     },
                     generation: 0,
+                    stopping: false,
                     discovered: HashMap::new(),
                     controls: HashMap::new(),
                     tasks: Vec::new(),
@@ -343,13 +377,6 @@ impl LinkService {
                 .get(&host.id)
                 .is_some_and(|(_, seen)| seen.elapsed() < std::time::Duration::from_secs(10))
         });
-        snapshot.requests.retain(|request| {
-            state.controls.get(&request.id).is_some_and(|control| {
-                control
-                    .approval_deadline
-                    .is_none_or(|deadline| Instant::now() < deadline)
-            })
-        });
         snapshot
     }
     pub async fn set_role(&self, role: LinkRole) -> Result<LinkSnapshot, String> {
@@ -380,11 +407,6 @@ impl LinkService {
         }
         drain_tasks(&self.inner).await;
         let role = self.inner.lock().snapshot.role;
-        let pairing_code = if role == LinkRole::Host {
-            Some(crypto::generate_pin()?)
-        } else {
-            None
-        };
         let sockets = match network::bind(role).await {
             Ok(sockets) => sockets,
             Err(error) => {
@@ -396,9 +418,9 @@ impl LinkService {
         let generation = {
             let mut state = self.inner.lock();
             state.generation = state.generation.wrapping_add(1);
+            state.stopping = false;
             state.snapshot.running = true;
             state.snapshot.local_name = name;
-            state.snapshot.pairing_code = pairing_code;
             state.snapshot.last_error = None;
             state.snapshot.client_state = if role == LinkRole::Client {
                 ClientState::Discovering
@@ -415,27 +437,55 @@ impl LinkService {
         network::launch(&self.inner, generation, sockets, cancel_rx);
         Ok(self.snapshot())
     }
+    /// Record the local intent before callers wait for audio/device cleanup.
+    pub fn begin_stop(&self) {
+        let mut state = self.inner.lock();
+        let first_request = !state.stopping;
+        state.stopping = true;
+        for control in state.controls.values_mut() {
+            if !control.local_stop_requested {
+                control.local_stop_requested = true;
+                let _ = control.sender.try_send(Command::Disconnect);
+            }
+        }
+        if first_request {
+            self.inner.diagnostics.log(
+                "link-stop-requested",
+                serde_json::json!({"generation":state.generation,"connections":state.controls.len()}),
+            );
+        }
+    }
     pub async fn stop(&self) {
         let _lifecycle = self.inner.lifecycle.lock().await;
+        self.begin_stop();
         self.log_event("link-stop", serde_json::json!({}));
+        let grace = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                // A client may still be reading Accepted while the host has published it.
+                // Let pending handshakes reach the stopping check and send Bye as well.
+                if self.inner.lock().controls.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        if grace.is_err() {
+            self.log_event(
+                "link-stop-grace-expired",
+                serde_json::json!({"timeoutMs":2000}),
+            );
+        }
         {
             let mut state = self.inner.lock();
             state.snapshot.last_error = None;
-            state.tasks = shutdown(&mut state, &self.inner.events);
+            state.tasks = shutdown(&mut state, &self.inner.events, DisconnectReason::Local);
         }
         drain_tasks(&self.inner).await;
     }
-    pub async fn connect(
-        &self,
-        address: String,
-        port: u16,
-        pairing_code: String,
-    ) -> Result<(), String> {
+    pub async fn connect(&self, address: String, port: u16) -> Result<(), String> {
         let _lifecycle = self.inner.lifecycle.lock().await;
         let address = protocol::local_target(&address, port)?;
-        if !crypto::valid_pin(&pairing_code) {
-            return Err("请输入 Windows 显示的 6 位 PIN".into());
-        }
         let id = uuid::Uuid::new_v4().to_string();
         let (control, outbound) = channels();
         let (generation, name, cancel) = {
@@ -446,74 +496,41 @@ impl LinkService {
             if !state.snapshot.running {
                 return Err("请先启动局域网搜索".into());
             }
+            if state.stopping {
+                return Err("连接正在停止，请稍后重试".into());
+            }
             if !state.controls.is_empty() {
-                return Err("请先断开当前连接或等待请求结束".into());
+                return Err("请先断开当前连接或等待连接结束".into());
             }
             let cancel = state.cancel.as_ref().ok_or("发现服务已停止")?.subscribe();
             state.controls.insert(id.clone(), control);
             state.snapshot.client_state = ClientState::Connecting;
-            state.snapshot.verification_code = None;
             state.snapshot.last_error = None;
             (state.generation, state.snapshot.local_name.clone(), cancel)
         };
         let inner = self.inner.clone();
         spawn(&self.inner, generation, async move {
-            network::client_connection(
-                inner,
-                generation,
-                id,
-                name,
-                address,
-                pairing_code,
-                outbound,
-                cancel,
-            )
-            .await;
+            network::client_connection(inner, generation, id, name, address, outbound, cancel)
+                .await;
         });
         Ok(())
     }
-    pub fn answer_request(&self, id: &str, approve: bool) -> Result<(), String> {
-        let mut state = self.inner.lock();
-        if state.snapshot.role != LinkRole::Host || !state.snapshot.running {
-            return Err("主机发现服务未运行".into());
-        }
-        if !state
-            .snapshot
-            .requests
-            .iter()
-            .any(|request| request.id == id)
-        {
-            return Err("连接请求已结束".into());
-        }
-        let control = state.controls.get_mut(id).ok_or("连接请求已结束")?;
-        if control
-            .approval_deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            return Err("连接请求已超过 60 秒".into());
-        }
-        if control.answered {
-            return Err("连接请求已处理".into());
-        }
-        control
-            .sender
-            .try_send(Command::Answer(approve))
-            .map_err(|_| "连接请求已结束")?;
-        control.answered = true;
-        Ok(())
-    }
     pub fn disconnect_peer(&self, id: &str) -> Result<(), String> {
-        let state = self.inner.lock();
-        if !state.snapshot.peers.iter().any(|peer| peer.id == id) {
-            return Err("设备已断开".into());
+        let mut state = self.inner.lock();
+        let Some(control) = state.controls.get_mut(id) else {
+            return Ok(());
+        };
+        if control.local_stop_requested {
+            return Ok(());
         }
-        state
-            .controls
-            .get(id)
-            .ok_or("设备已断开")?
-            .sender
-            .try_send(Command::Disconnect)
-            .map_err(|_| "设备已断开".to_owned())
+        // Persist the user's intent before a concurrently ready read/write can finish.
+        control.local_stop_requested = true;
+        let _ = control.sender.try_send(Command::Disconnect);
+        self.inner.diagnostics.log(
+            "peer-stop-requested",
+            serde_json::json!({"peerId":id,"generation":state.generation}),
+        );
+        Ok(())
     }
     pub fn send_control(&self, peer_id: &str, payload: Value) -> Result<(), String> {
         protocol::validate_control(&payload)?;
@@ -561,6 +578,10 @@ impl LinkService {
 }
 impl Drop for LinkService {
     fn drop(&mut self) {
-        shutdown(&mut self.inner.lock(), &self.inner.events);
+        shutdown(
+            &mut self.inner.lock(),
+            &self.inner.events,
+            DisconnectReason::Local,
+        );
     }
 }

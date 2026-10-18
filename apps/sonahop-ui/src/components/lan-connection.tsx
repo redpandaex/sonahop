@@ -1,32 +1,22 @@
-import { useState } from "react";
+import { DeviceMobileIcon, MonitorIcon } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DeviceMobileIcon, MonitorIcon } from "@phosphor-icons/react";
-import { ErrorMessage, StatusBadge } from "./controls";
-import { parseLinkAddress, normalizeStoredAddress } from "../lib/connection-address.ts";
+import { normalizeStoredAddress, parseLinkAddress } from "../lib/connection-address.ts";
 import type { Workbench } from "../lib/use-workbench";
 import { audioStatusLabel } from "./audio-controls";
+import { ErrorMessage, StatusBadge } from "./controls";
 
-export function linkStatusLabel(w: Workbench): string {
-  if (!w.link.native) return "原生应用才能连接";
-  if (!w.link.available) return "连接服务未就绪";
-  const snapshot = w.link.snapshot;
-  if (!snapshot) return "正在读取连接状态";
-  if (snapshot.peers.length > 0)
-    return w.audio.snapshot?.active || w.audio.snapshot?.waiting
-      ? audioStatusLabel(w)
-      : "已连接 · 音频已停止";
-  if (snapshot.clientState === "awaitingApproval") return "等待共享设备确认";
-  if (snapshot.clientState === "connecting") return "正在连接";
-  if (snapshot.running) return snapshot.role === "host" ? "可被发现" : "正在搜索";
-  return "局域网连接已关闭";
-}
+export { linkStatusLabel, linkStatusTone } from "../lib/status-presentation";
+
+import { audioStatusTone, linkStatusLabel, linkStatusTone } from "../lib/status-presentation";
 
 export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
   const [copyMessage, setCopyMessage] = useState("");
   const { snapshot, busy, available, error } = w.link;
   const running = snapshot?.running ?? false;
-  const disabled = !available || !snapshot || busy || w.audio.busy || w.roleBusy || !w.roleReady;
+  const disabled =
+    !available || !snapshot || busy || w.audio.busy || w.sessionBusy || w.roleBusy || !w.roleReady;
   return (
     <section className="panel peer-panel lan-panel">
       <div className="panel-heading">
@@ -87,53 +77,8 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
           </p>
         )
       )}
-      {snapshot?.role === "host" && snapshot.running && snapshot.pairingCode && (
-        <div className="lan-confirmation">
-          <h3>连接 PIN</h3>
-          <output className="lan-code" aria-label="收听设备连接 PIN">
-            {snapshot.pairingCode}
-          </output>
-          <p>在收听设备输入此 PIN。</p>
-        </div>
-      )}
       {error && <ErrorMessage message={error} />}
       {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法提供共享设备。</p>}
-      {snapshot && snapshot.requests.length > 0 && (
-        <div className="lan-group">
-          <h3 className="lan-group-heading">待确认请求</h3>
-          <p className="lan-note">核对设备名称和编号后接受。</p>
-          {snapshot.requests.map((request) => (
-            <div className="lan-device" key={request.id}>
-              <div className="lan-device-identity">
-                <DeviceMobileIcon size={23} weight="bold" aria-hidden />
-                <div>
-                  <h3>{request.name}</h3>
-                  <p className="mono">{request.address}</p>
-                </div>
-              </div>
-              <output className="lan-code" aria-label="核对编号">
-                {request.verificationCode}
-              </output>
-              <div className="lan-actions">
-                <Button
-                  className="secondary-button"
-                  disabled={disabled}
-                  onClick={() => void w.link.answer(request.id, false)}
-                >
-                  拒绝
-                </Button>
-                <Button
-                  className="primary-button"
-                  disabled={disabled || snapshot.peers.length >= 2}
-                  onClick={() => void w.link.answer(request.id, true)}
-                >
-                  接受
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
       <div className="lan-group">
         <h3 className="lan-group-heading">已连接设备</h3>
         {snapshot?.peers.length ? (
@@ -147,7 +92,7 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
                 </div>
               </div>
               <div className="lan-device-footer">
-                <span className="quiet-tag">已连接</span>
+                <StatusBadge label="已连接" tone="success" />
                 <Button
                   className="secondary-button"
                   disabled={disabled}
@@ -167,20 +112,25 @@ export function HostLinkPanel({ workbench: w }: { workbench: Workbench }) {
 }
 
 export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
-  const [address, setAddress] = useState(w.prefs.computerAddress);
+  const [address, setAddress] = useState("");
   const [addressError, setAddressError] = useState("");
-  const [pairingCode, setPairingCode] = useState("");
-  const validPin = /^\d{6}$/.test(pairingCode);
   const { snapshot, busy, available, error } = w.link;
-  const disabled = !available || !snapshot || busy || w.audio.busy || w.roleBusy || !w.roleReady;
+  const disabled =
+    !available || !snapshot || busy || w.audio.busy || w.sessionBusy || w.roleBusy || !w.roleReady;
   const state = snapshot?.clientState ?? "idle";
   const connected = state === "connected";
-  const pending = state === "connecting" || state === "awaitingApproval";
+  const pending = state === "connecting" || w.connectionPending;
+  useEffect(() => {
+    if (connected) {
+      setAddress("");
+      setAddressError("");
+    }
+  }, [connected]);
   return (
     <section className="panel lan-panel client-lan-panel">
       <div className="panel-heading">
         <h2>连接共享设备</h2>
-        <StatusBadge label={linkStatusLabel(w)} />
+        <StatusBadge label={linkStatusLabel(w)} tone={linkStatusTone(w)} />
       </div>
       <div className="lan-service-row">
         {pending ? (
@@ -206,19 +156,9 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
       {error && <ErrorMessage message={error} />}
       {!w.link.native && <p className="lan-note">请打开原生应用，浏览器无法搜索或连接共享设备。</p>}
       {pending && (
-        <div className="lan-confirmation" role="status">
-          <h3>{state === "awaitingApproval" ? "请在共享设备确认连接" : "正在联系共享设备…"}</h3>
-          {snapshot?.verificationCode && (
-            <output className="lan-code" aria-label="核对编号">
-              {snapshot.verificationCode}
-            </output>
-          )}
-          <p>
-            {state === "awaitingApproval"
-              ? "核对两端的六位编号，然后在共享设备上接受请求。"
-              : "收到共享设备回应后，会显示核对编号。"}
-          </p>
-        </div>
+        <p className="lan-empty" role="status">
+          正在建立加密连接…
+        </p>
       )}
       {connected &&
         snapshot?.peers.map((peer) => (
@@ -231,7 +171,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               </div>
             </div>
             <div className="lan-device-footer">
-              <span className="quiet-tag">{audioStatusLabel(w)}</span>
+              <StatusBadge label={audioStatusLabel(w)} tone={audioStatusTone(w)} />
               <Button
                 className="secondary-button"
                 disabled={disabled}
@@ -244,23 +184,6 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
         ))}
       {!connected && !pending && (
         <>
-          <div className="lan-pin-field">
-            <label className="field-label" htmlFor="connection-pin">
-              对方的连接 PIN
-            </label>
-            <Input
-              id="connection-pin"
-              value={pairingCode}
-              maxLength={6}
-              pattern="[0-9]{6}"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="六位数字"
-              onChange={(event) =>
-                setPairingCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))
-              }
-            />
-          </div>
           <div className="lan-group">
             <h3 className="lan-group-heading">发现的共享设备</h3>
             {snapshot?.discovered.length ? (
@@ -275,8 +198,8 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
                   </div>
                   <Button
                     className="secondary-button"
-                    disabled={disabled || !validPin}
-                    onClick={() => void w.link.connect(host.address, host.port, pairingCode)}
+                    disabled={disabled}
+                    onClick={() => void w.connectAndListen(host.address, host.port)}
                   >
                     连接
                   </Button>
@@ -293,7 +216,7 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
               setAddressError("");
               try {
                 const target = parseLinkAddress(address);
-                void w.link.connect(target.address, target.port, pairingCode);
+                void w.connectAndListen(target.address, target.port);
               } catch (validationError) {
                 setAddressError(String(validationError));
               }
@@ -327,22 +250,10 @@ export function ClientLinkPanel({ workbench: w }: { workbench: Workbench }) {
             />
             {addressError && <ErrorMessage message={addressError} />}
             <div className="lan-actions">
-              {w.prefs.computerAddress && w.prefs.computerAddress !== address && (
-                <Button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    setAddress(w.prefs.computerAddress);
-                    setAddressError("");
-                  }}
-                >
-                  使用已保存地址
-                </Button>
-              )}
               <Button
                 type="submit"
                 className="primary-button"
-                disabled={disabled || !address.trim() || !validPin}
+                disabled={disabled || !address.trim()}
               >
                 连接此地址
               </Button>

@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Platform } from "./bridge";
+import type { LinkSnapshot } from "./link-bridge";
 import {
-  answerLinkRequest,
   connectLink,
   disconnectLinkPeer,
   ensureNetworkAccess,
   getLinkSnapshot,
   nativeLinkAvailable,
   startLink,
-  switchConnectionRole,
   stopLink,
+  switchConnectionRole,
 } from "./link-bridge";
-import type { LinkSnapshot } from "./link-bridge";
 
 type LinkOperation = (publish: (value: LinkSnapshot) => void) => Promise<LinkSnapshot | void>;
 
@@ -136,18 +135,13 @@ export function useLink(platform: Platform, appReady: boolean) {
   );
   const stop = useCallback(() => perform(stopLink), [perform]);
   const connect = useCallback(
-    (address: string, port: number, pairingCode: string) =>
+    (address: string, port: number) =>
       perform(async (publish) => {
-        if (!/^\d{6}$/.test(pairingCode)) throw new Error("请输入服务器显示的六位连接 PIN。");
         const name = await ensureNetworkAccess(platform);
         if (!currentSnapshot.current?.running) publish(await startLink(name));
-        await connectLink(address, port, pairingCode);
+        await connectLink(address, port);
       }),
     [perform, platform],
-  );
-  const answer = useCallback(
-    (requestId: string, approve: boolean) => perform(() => answerLinkRequest(requestId, approve)),
-    [perform],
   );
   const disconnect = useCallback(
     (peerId: string) => perform(() => disconnectLinkPeer(peerId)),
@@ -164,7 +158,6 @@ export function useLink(platform: Platform, appReady: boolean) {
     start,
     stop,
     connect,
-    answer,
     disconnect,
   };
 }

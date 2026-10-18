@@ -7,12 +7,6 @@ export interface DiscoveredHost {
   address: string;
   port: number;
 }
-export interface LinkRequest {
-  id: string;
-  name: string;
-  address: string;
-  verificationCode: string;
-}
 export interface LinkPeer {
   id: string;
   name: string;
@@ -25,11 +19,8 @@ export interface LinkSnapshot {
   localAddresses: string[];
   port: number;
   discovered: DiscoveredHost[];
-  requests: LinkRequest[];
   peers: LinkPeer[];
-  clientState: "idle" | "discovering" | "connecting" | "awaitingApproval" | "connected";
-  verificationCode: string | null;
-  pairingCode: string | null;
+  clientState: "idle" | "discovering" | "connecting" | "connected";
   lastError: string | null;
 }
 export const nativeLinkAvailable = () => isTauri();
@@ -38,10 +29,8 @@ export const switchConnectionRole = (role: "host" | "client") =>
   invoke<LinkSnapshot>("switch_connection_role", { role });
 export const startLink = (name: string) => invoke<LinkSnapshot>("start_link", { name });
 export const stopLink = () => invoke<void>("stop_link");
-export const connectLink = (address: string, port: number, pairingCode: string) =>
-  invoke<void>("connect_link", { address, port, pairingCode });
-export const answerLinkRequest = (requestId: string, approve: boolean) =>
-  invoke<void>("answer_link_request", { requestId, approve });
+export const connectLink = (address: string, port: number) =>
+  invoke<void>("connect_link", { address, port });
 export const disconnectLinkPeer = (peerId: string) =>
   invoke<void>("disconnect_link_peer", { peerId });
 

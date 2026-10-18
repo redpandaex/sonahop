@@ -1,5 +1,5 @@
 use super::backend::{Sink, Source};
-use super::{AudioSource, Shared};
+use super::{AudioSource, Phase, Shared};
 use sonahop_audio::{
     AudioDecoder, AudioEncoder, FRAME_MILLIS, FRAME_SAMPLES, MediaPacket, StreamKind, to_stereo,
 };
@@ -226,6 +226,7 @@ fn playback_loop(
     let mut next = Instant::now();
     let mut last_packet = Instant::now();
     let mut missed = 0;
+    let mut decoder_id = id;
     while !cancel.load(Ordering::Acquire) {
         let mut packet = match incoming.recv_timeout(
             next.saturating_duration_since(Instant::now())
@@ -242,7 +243,36 @@ fn playback_loop(
         if Instant::now() < next {
             thread::sleep(next.saturating_duration_since(Instant::now()));
         }
-        let pcm = if let Some(packet) = packet {
+        let (phase, stream_id) = {
+            let state = shared.lock();
+            let lane = state.lane(kind);
+            if lane.epoch != epoch {
+                return Ok(());
+            }
+            (lane.phase, lane.stream_id)
+        };
+        if let Some(stream_id) = stream_id {
+            if stream_id != decoder_id {
+                decoder = AudioDecoder::new(kind, stream_id)?;
+                decoder_id = stream_id;
+                last_packet = Instant::now();
+                missed = 0;
+            }
+        }
+        // Queued packets from a previous source must never enter the new decoder.
+        if packet
+            .as_ref()
+            .is_some_and(|packet| Some(packet.stream_id) != stream_id)
+        {
+            packet = None;
+            shared.lock().lane_mut(kind).dropped_packets += 1;
+        }
+        let mut pcm = if phase == Phase::Waiting && stream_id.is_none() {
+            // Keep the already-authorized output alive during a host pause, without a timeout.
+            last_packet = Instant::now();
+            missed = 0;
+            vec![0.0; FRAME_SAMPLES * kind.channels()]
+        } else if let Some(packet) = packet {
             match decoder.decode(&packet) {
                 Ok(Some(pcm)) => {
                     last_packet = Instant::now();
@@ -277,7 +307,12 @@ fn playback_loop(
                 return Ok(());
             }
             let lane = state.lane_mut(kind);
-            lane.peak_level = (lane.peak_level * 0.9).max(peak);
+            if lane.phase != Phase::Active || lane.stream_id != stream_id {
+                pcm.fill(0.0);
+                lane.peak_level = 0.0;
+            } else {
+                lane.peak_level = (lane.peak_level * 0.9).max(peak);
+            }
             1.0
         };
         if !sink.write(&to_stereo(&pcm, kind, gain))? {

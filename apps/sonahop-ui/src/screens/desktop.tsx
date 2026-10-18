@@ -1,8 +1,8 @@
-import { Button } from "@/components/ui/button";
 import { MonitorIcon } from "@phosphor-icons/react";
-import { Brand, PreviewNotice, StatusBadge, ErrorMessage } from "../components/controls";
-import { linkStatusLabel } from "../components/lan-connection";
-import { audioStatusLabel } from "../components/audio-controls";
+import { Button } from "@/components/ui/button";
+import { audioStatusLabel, audioStatusTone } from "../components/audio-controls";
+import { Brand, ErrorMessage, PreviewNotice, StatusBadge } from "../components/controls";
+import { linkStatusLabel, linkStatusTone } from "../components/lan-connection";
 import { RoleNavigation, WorkspaceScreen } from "../components/workspace";
 import type { Workbench } from "../lib/use-workbench";
 import { SettingsScreen } from "./settings";
@@ -28,7 +28,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
             工作区 <span>/</span>{" "}
             {w.page === "settings" ? "设置" : w.role === "host" ? "共享" : "收听"}
           </div>
-          <StatusBadge label={linkStatusLabel(w)} />
+          <StatusBadge label={linkStatusLabel(w)} tone={linkStatusTone(w)} />
         </header>
         <PreviewNotice browser={w.info.browserPreview} />
         {w.appError && <ErrorMessage message={w.appError} />}
@@ -39,7 +39,7 @@ export function DesktopScreen({ workbench: w }: { workbench: Workbench }) {
         )}
         <footer className="desktop-footer">
           <span>
-            <span className="status-dot" />
+            <span className="status-dot" data-tone={audioStatusTone(w)} aria-hidden="true" />
             {audioStatusLabel(w)}
           </span>
           {!w.saved && <span>设置未保存</span>}

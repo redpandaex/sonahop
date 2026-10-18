@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Platform } from "./bridge";
-import { nativeLinkAvailable } from "./link-bridge";
+import type { AudioSnapshot, ListenOptions } from "./audio-bridge";
 import {
   answerMicrophoneRequest,
   getAudioSnapshot,
@@ -11,7 +10,8 @@ import {
   stopAudio,
   stopAudioLane,
 } from "./audio-bridge";
-import type { AudioSnapshot, ListenOptions } from "./audio-bridge";
+import type { Platform } from "./bridge";
+import { nativeLinkAvailable } from "./link-bridge";
 
 export function useAudio(platform: Platform, appReady: boolean) {
   const available =
@@ -114,24 +114,26 @@ export function useAudio(platform: Platform, appReady: boolean) {
   );
 
   const refresh = useCallback(() => perform(getAudioSnapshot), [perform]);
+  const snapshotRole = snapshot?.role;
   const startListen = useCallback(
-    (options: ListenOptions = {}) =>
+    (options: ListenOptions = {}, prepared = false) =>
       perform(async () => {
-        if (!snapshot) throw new Error("音频状态尚未就绪，请稍后重试。");
+        if (!snapshotRole) throw new Error("音频状态尚未就绪，请稍后重试。");
         const source = options.source ?? "system";
-        await prepareAudio(
-          platform,
-          snapshot.role === "host"
-            ? source === "microphone"
-              ? "microphone"
-              : "playback"
-            : "listen",
-        );
-        if (snapshot.role === "host" && source === "microphone" && options.gain !== undefined)
+        if (!prepared)
+          await prepareAudio(
+            platform,
+            snapshotRole === "host"
+              ? source === "microphone"
+                ? "microphone"
+                : "playback"
+              : "listen",
+          );
+        if (snapshotRole === "host" && source === "microphone" && options.gain !== undefined)
           await setAudioGain(options.gain);
         return startListening(options);
       }),
-    [perform, platform, snapshot?.role],
+    [perform, platform, snapshotRole],
   );
   const requestMic = useCallback(
     (gain: number, inputDeviceId?: string) =>

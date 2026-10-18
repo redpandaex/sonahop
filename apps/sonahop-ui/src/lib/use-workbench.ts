@@ -13,6 +13,7 @@ import { PREFERENCES_KEY, readPreferences, savePreferences } from "./preferences
 import { useAudio } from "./use-audio";
 import { useAutostart } from "./use-autostart";
 import { useLink } from "./use-link";
+import { useSessionActions } from "./use-session-actions";
 
 function initialPreferences() {
   try {
@@ -82,9 +83,22 @@ export function useWorkbench() {
       })),
     [],
   );
+  const sessions = useSessionActions({
+    info,
+    role,
+    roleReady,
+    prefs,
+    devices,
+    captureDevices,
+    audio,
+    link,
+    update,
+  });
+  const { clearClientIntent } = sessions;
   const switchRole = useCallback(
     async (next: ConnectionRole) => {
       if (roleGate.current) return false;
+      clearClientIntent();
       if (!nativeLinkAvailable()) {
         update({ connectionRole: next });
         setRoleReady(true);
@@ -118,7 +132,15 @@ export function useWorkbench() {
         if (mounted.current) setRoleBusy(false);
       }
     },
-    [link.available, link.changeRole, link.start, audio.available, audio.refresh, update],
+    [
+      link.available,
+      link.changeRole,
+      link.start,
+      audio.available,
+      audio.refresh,
+      update,
+      clearClientIntent,
+    ],
   );
   useEffect(() => {
     if (!appReady || !link.snapshot || initialized.current || !link.native) return;
@@ -136,23 +158,34 @@ export function useWorkbench() {
     [prefs.mode, update],
   );
   const stopLink = useCallback(async () => {
-    if (audio.available) await audio.stop();
+    clearClientIntent();
     return link.stop();
-  }, [audio.available, audio.stop, link.stop]);
+  }, [link.stop, clearClientIntent]);
   const retryDiscovery = useCallback(async () => {
     if (roleGate.current) return false;
-    if (audio.available && !(await audio.stop())) return false;
+    clearClientIntent();
+    // Native stop records the local intent before it waits for audio teardown.
     if (!(await link.stop())) return false;
     return link.start();
-  }, [audio.available, audio.stop, link.stop, link.start]);
+  }, [link.stop, link.start, clearClientIntent]);
   const disconnectPeer = useCallback(
     async (peerId: string) => {
+      clearClientIntent();
+      const disconnected = await link.disconnect(peerId);
       if (audio.available && role === "client") await audio.stop();
       else if (audio.available && audio.snapshot?.micPeerId === peerId)
         await audio.stopLane("microphone");
-      return link.disconnect(peerId);
+      return disconnected;
     },
-    [audio.available, audio.stop, audio.stopLane, audio.snapshot?.micPeerId, role, link.disconnect],
+    [
+      audio.available,
+      audio.stop,
+      audio.stopLane,
+      audio.snapshot?.micPeerId,
+      role,
+      link.disconnect,
+      clearClientIntent,
+    ],
   );
   const refreshDevices = useCallback(async () => {
     const version = ++deviceRevision.current;
@@ -224,6 +257,7 @@ export function useWorkbench() {
     prefs,
     update,
     info,
+    ...sessions,
     link,
     audio,
     autostart,

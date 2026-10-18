@@ -109,6 +109,9 @@ enum AudioControl {
         #[serde(default)]
         request_id: Option<String>,
     },
+    ListenPaused {
+        request_id: String,
+    },
     MicGrant {
         stream_id: String,
         #[serde(default)]
@@ -712,17 +715,67 @@ impl AudioService {
         if kind == StreamKind::Microphone {
             self.reject_pending("电脑已取消麦克风申请", None);
         }
-        self.stop_lane_inner(
-            kind,
-            if kind == StreamKind::Listen {
-                "声音共享已停止"
-            } else {
-                "麦克风已停止"
-            },
-            true,
-        )
-        .await;
+        if kind == StreamKind::Listen && self.shared.lock().role == LinkRole::Host {
+            self.pause_listening().await;
+        } else {
+            self.stop_lane_inner(
+                kind,
+                if kind == StreamKind::Listen {
+                    "收听已停止"
+                } else {
+                    "麦克风已停止"
+                },
+                true,
+            )
+            .await;
+        }
         self.snapshot()
+    }
+    // A host pause releases capture without ending the listening subscription.
+    // Receivers keep the existing sink/service so a background resume needs no new start.
+    // Full stop, disconnect and notification stop still use stop_lane_inner.
+    async fn pause_listening(&self) {
+        let (worker, subscribers) = {
+            let mut state = self.shared.lock();
+            let host = state.role == LinkRole::Host;
+            let subscribers = if host {
+                state
+                    .listeners
+                    .iter()
+                    .map(|(peer, request)| (peer.clone(), request.clone()))
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let lane = &mut state.listen;
+            let worker = if host {
+                lane.epoch = lane.epoch.wrapping_add(1);
+                let worker = lane.worker.take();
+                if let Some(worker) = &worker {
+                    worker.cancel();
+                }
+                worker
+            } else {
+                None
+            };
+            lane.peak_level = 0.0;
+            lane.phase = if host { Phase::Idle } else { Phase::Waiting };
+            lane.stream_id = None;
+            lane.error = None;
+            (worker, subscribers)
+        };
+        for (peer, request_id) in subscribers {
+            if self
+                .shared
+                .send(&peer, AudioControl::ListenPaused { request_id })
+                .is_err()
+            {
+                self.shared.lock().listeners.remove(&peer);
+            }
+        }
+        if let Some(worker) = worker {
+            let _ = tauri::async_runtime::spawn_blocking(move || worker.join()).await;
+        }
     }
     fn reject_pending(&self, reason: &str, except: Option<&str>) {
         let pending = {

@@ -1,5 +1,5 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 import {
   DEFAULT_PREFERENCES,
   PREFERENCES_KEY,
@@ -21,8 +21,8 @@ test("a supported document restores the user's actual choices", () => {
     theme: "dark" as const,
     volume: 45,
     sourceId: "a-playback-endpoint",
-    computerName: "工作电脑",
-    computerAddress: "192.168.1.8",
+    inputDeviceId: "a-capture-endpoint",
+    outputDeviceId: "a-render-endpoint",
   };
   assert.deepEqual(readPreferences(JSON.stringify(prefs)), prefs);
 });
@@ -57,10 +57,10 @@ test("unknown document versions cannot restore an incompatible mode", () => {
     DEFAULT_PREFERENCES,
   );
 });
-test("saving and reading preserve choices without losing Unicode names", () => {
+test("saving and reading preserve audio choices and Unicode values", () => {
   let key = "";
   let stored = "";
-  const value = { ...DEFAULT_PREFERENCES, computerName: "联想平板的电脑", volume: 62 };
+  const value = { ...DEFAULT_PREFERENCES, inputDeviceId: "麦克风端点", volume: 62 };
   assert.equal(
     savePreferences(
       {

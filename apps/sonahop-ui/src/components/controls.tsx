@@ -1,18 +1,12 @@
+import {
+  MicrophoneIcon,
+  SpeakerHighIcon,
+  WarningCircleIcon,
+  WaveformIcon,
+} from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  WaveformIcon,
-  SpeakerHighIcon,
-  MicrophoneIcon,
-  ArrowRightIcon,
-  ArrowUpRightIcon,
-  ArrowDownLeftIcon,
-  MonitorIcon,
-  DeviceTabletIcon,
-  WifiHighIcon,
-  WarningCircleIcon,
-} from "@phosphor-icons/react";
-import type { AudioMode } from "../lib/preferences";
+import type { StatusTone } from "../lib/status-presentation";
 import type { Workbench } from "../lib/use-workbench";
 
 export function Brand({ small = false }: { small?: boolean }) {
@@ -36,85 +30,18 @@ export function PreviewNotice({ browser }: { browser: boolean }) {
     </div>
   );
 }
-export function ModeSwitch({
-  mode,
-  onChange,
-  vertical = false,
-  disabled = false,
-  senderMode = "listen",
+export function StatusBadge({
+  label = "未共享",
+  tone = "neutral",
 }: {
-  mode: AudioMode;
-  onChange: (mode: AudioMode) => void;
-  vertical?: boolean;
-  disabled?: boolean;
-  senderMode?: AudioMode;
+  label?: string;
+  tone?: StatusTone;
 }) {
-  const receiverMode: AudioMode = senderMode === "listen" ? "microphone" : "listen";
-  const choices = [
-    { value: senderMode, label: "发送音频", icon: ArrowUpRightIcon },
-    { value: receiverMode, label: "接收音频", icon: ArrowDownLeftIcon },
-  ];
   return (
-    <fieldset
-      disabled={disabled}
-      className={vertical ? "mode-switch mode-vertical" : "mode-switch"}
-    >
-      <legend className="sr-only">音频方向</legend>
-      {choices.map(({ value, label, icon: Icon }) => (
-        <label key={value} className={mode === value ? "mode-choice selected" : "mode-choice"}>
-          <input
-            type="radio"
-            name="audio-mode"
-            checked={mode === value}
-            onChange={() => onChange(value)}
-          />
-          <Icon size={20} weight="bold" aria-hidden />
-          <span>{label}</span>
-        </label>
-      ))}
-    </fieldset>
-  );
-}
-export function StatusBadge({ label = "未共享" }: { label?: string }) {
-  return (
-    <Badge variant="outline" className="status-badge">
-      <span className="status-dot" />
+    <Badge variant="outline" className="status-badge" data-tone={tone} role="status">
+      <span className="status-dot" aria-hidden="true" />
       {label}
     </Badge>
-  );
-}
-export function RouteDiagram({ mode, mobile = false }: { mode: AudioMode; mobile?: boolean }) {
-  const firstIsPc = mode === "listen";
-  return (
-    <div className={mobile ? "audio-route mobile-route" : "audio-route"}>
-      <div className="route-end">
-        <span className="route-icon">
-          {firstIsPc ? (
-            <MonitorIcon size={29} weight="bold" aria-hidden />
-          ) : (
-            <MicrophoneIcon size={29} weight="bold" aria-hidden />
-          )}
-        </span>
-        <span>{firstIsPc ? "电脑声音" : "设备麦克风"}</span>
-      </div>
-      <div className="route-middle">
-        <div className="route-line">
-          <WifiHighIcon size={17} weight="bold" aria-hidden />
-          <ArrowRightIcon size={16} weight="bold" aria-hidden />
-        </div>
-        <span>本地网络</span>
-      </div>
-      <div className="route-end">
-        <span className="route-icon">
-          {firstIsPc ? (
-            <DeviceTabletIcon size={29} weight="bold" aria-hidden />
-          ) : (
-            <MonitorIcon size={29} weight="bold" aria-hidden />
-          )}
-        </span>
-        <span>{firstIsPc ? "手机 / 平板" : "电脑应用"}</span>
-      </div>
-    </div>
   );
 }
 export function VolumeControl({
@@ -171,7 +98,7 @@ export function VolumeControl({
           ? "浏览器只保存音量偏好。"
           : microphone
             ? workbench.role === "host"
-              ? "调整本设备麦克风增益；点击开始共享后启动。"
+              ? "调整本设备麦克风增益；选择麦克风后启用。"
               : "调整本设备麦克风增益；申请获得共享设备批准后启动。"
             : "调整这台设备的接收音量，不改变电脑扬声器或另一台设备的音量。"}
         {workbench.audio.snapshot && !workbench.info.browserPreview && (

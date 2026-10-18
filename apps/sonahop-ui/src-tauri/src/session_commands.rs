@@ -18,11 +18,12 @@ pub async fn switch_connection_role(
     if link.snapshot().role == role && audio.snapshot().role == role {
         return Ok(link.snapshot());
     }
+    link.begin_stop();
     let stopped = audio.stop().await;
+    link.stop().await;
     if let Some(error) = stopped.last_error {
         return Err(error);
     }
-    link.stop().await;
     let snapshot = link.set_role(role).await?;
     audio.set_role(role).await?;
     Ok(snapshot)

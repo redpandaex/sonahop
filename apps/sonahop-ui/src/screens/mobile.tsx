@@ -1,6 +1,6 @@
 import { GearSixIcon } from "@phosphor-icons/react";
-import { Brand, PreviewNotice, ErrorMessage, StatusBadge } from "../components/controls";
-import { audioStatusLabel } from "../components/audio-controls";
+import { audioStatusLabel, audioStatusTone } from "../components/audio-controls";
+import { Brand, ErrorMessage, PreviewNotice, StatusBadge } from "../components/controls";
 import { RoleNavigation, WorkspaceScreen } from "../components/workspace";
 import type { Workbench } from "../lib/use-workbench";
 import { SettingsScreen } from "./settings";
@@ -23,7 +23,7 @@ export function MobileScreen({ workbench: w }: { workbench: Workbench }) {
           <WorkspaceScreen workbench={w} />
         )}
         <div className="mobile-session-status">
-          <StatusBadge label={audioStatusLabel(w)} />
+          <StatusBadge label={audioStatusLabel(w)} tone={audioStatusTone(w)} />
         </div>
         {!w.saved && <ErrorMessage message="设置未能保存，下次打开可能恢复默认。" />}
       </main>

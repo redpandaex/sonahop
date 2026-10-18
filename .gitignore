@@ -15,3 +15,7 @@ node_modules/
 /.deps/
 
 /.secrets/
+
+/.VSCodeCounter/
+
+/apps/sonahop-ui/src-tauri/icons/ios/

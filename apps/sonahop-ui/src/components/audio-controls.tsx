@@ -1,9 +1,4 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowRightIcon,
-  MicrophoneIcon,
-  SpeakerHighIcon,
-} from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, MicrophoneIcon, SpeakerHighIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,38 +15,10 @@ import { virtualAudioRoutes, virtualMicrophoneReady } from "../lib/virtual-audio
 import { ErrorMessage, StatusBadge, VolumeControl } from "./controls";
 import { VirtualAudioGuide } from "./virtual-audio-guide";
 
-export function audioStatusLabel(w: Workbench, lane?: "listen" | "microphone"): string {
-  if (!w.audio.available) return w.info.browserPreview ? "浏览器布局预览" : "音频服务未就绪";
-  const value = w.audio.snapshot;
-  if (!value) return "正在读取音频状态";
-  const status = lane ? value[lane] : null;
-  if (status) {
-    if (status.active)
-      return lane === "listen"
-        ? value.role === "host"
-          ? value.sendSource === "microphone"
-            ? "正在共享麦克风"
-            : "正在共享内部声音"
-          : "正在收听"
-        : value.role === "host"
-          ? "接收远端麦克风"
-          : "正在上传麦克风";
-    if (status.waiting)
-      return lane === "listen"
-        ? value.role === "host"
-          ? "等待收听设备收听"
-          : "等待共享设备开始共享"
-        : value.role === "host"
-          ? "等待远端麦克风"
-          : "等待共享设备批准";
-    return "音频已停止";
-  }
-  if (value.listen.active && value.microphone.active)
-    return value.role === "host" ? "共享中 · 接收远端麦克风" : "收听中 · 上传麦克风";
-  if (value.listen.active || value.listen.waiting) return audioStatusLabel(w, "listen");
-  if (value.microphone.active || value.microphone.waiting) return audioStatusLabel(w, "microphone");
-  return "音频已停止";
-}
+export { audioStatusLabel, audioStatusTone } from "../lib/status-presentation";
+
+import { audioStatusLabel, audioStatusTone } from "../lib/status-presentation";
+
 export function AudioDiagnostics({
   workbench: w,
   lane = "listen",
@@ -223,6 +190,8 @@ function busy(w: Workbench): boolean {
     !w.roleReady ||
     w.roleBusy ||
     w.audio.busy ||
+    w.sessionBusy ||
+    w.connectionPending ||
     w.link.busy
   );
 }
@@ -240,42 +209,28 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
     <section className="panel source-panel">
       <div className="panel-heading">
         <h2>音源</h2>
-        <StatusBadge label={audioStatusLabel(w, "listen")} />
+        <StatusBadge label={audioStatusLabel(w, "listen")} tone={audioStatusTone(w, "listen")} />
       </div>
-      <label className="sr-only" htmlFor="send-source">
-        音频来源
-      </label>
-      <Select
-        value={source}
-        disabled={disabled || started}
-        onValueChange={(sendSource) => {
-          if (sendSource === "system" || sendSource === "microphone") w.update({ sendSource });
-        }}
-      >
-        <SelectTrigger id="send-source" className="device-select-trigger">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent position="popper" align="start" className="device-select-content">
-          <SelectGroup>
-            <SelectItem
-              className="device-select-item"
-              value="system"
-              disabled={!w.info.systemCaptureSupported}
-            >
-              {w.info.platform === "android" ? "应用声音" : "系统声音"}
-              {!w.info.systemCaptureSupported ? " · 不可用" : ""}
-            </SelectItem>
-            <SelectItem
-              className="device-select-item"
-              value="microphone"
-              disabled={w.info.platform === "windows" && !w.captureDevices.length}
-            >
-              本机麦克风
-              {w.info.platform === "windows" && !w.captureDevices.length ? " · 无录音设备" : ""}
-            </SelectItem>
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <section className="player-direction-tabs" aria-label="共享音源">
+        <Button
+          className={!microphone ? "direction-tab selected" : "direction-tab"}
+          aria-pressed={!microphone}
+          disabled={disabled || !w.info.systemCaptureSupported}
+          onClick={() => void w.activateShareSource("system")}
+        >
+          <SpeakerHighIcon size={18} weight="bold" />
+          {w.info.platform === "android" ? "应用声音" : "系统声音"}
+        </Button>
+        <Button
+          className={microphone ? "direction-tab selected" : "direction-tab"}
+          aria-pressed={microphone}
+          disabled={disabled || (w.info.platform === "windows" && !w.captureDevices.length)}
+          onClick={() => void w.activateShareSource("microphone")}
+        >
+          <MicrophoneIcon size={18} weight="bold" />
+          麦克风
+        </Button>
+      </section>
       {microphone ? (
         <>
           <InputDevices workbench={w} disabled={disabled || started} />
@@ -284,26 +239,23 @@ export function ServerAudioPanel({ workbench: w }: { workbench: Workbench }) {
       ) : unsupported ? (
         <p className="field-help capability-note">当前设备不支持系统声音采集。</p>
       ) : null}
-      <Button
-        className={started ? "secondary-button" : "primary-button"}
-        disabled={
-          disabled ||
-          (!started &&
-            (!w.link.snapshot?.running || unsupported || (microphone && !inputAvailable(w))))
-        }
-        onClick={() =>
-          void (started
-            ? w.audio.stopLane("listen")
-            : w.audio.startListen({
-                source,
-                inputDeviceId: w.prefs.inputDeviceId || undefined,
-                gain: w.prefs.volume,
-              }))
-        }
-      >
-        {w.audio.busy ? "处理中…" : started ? "停止共享" : "开始共享"}
-        <ArrowRightIcon size={18} weight="bold" />
-      </Button>
+      {(started || w.sharePaused || microphone || w.audio.error || w.sessionError) && (
+        <Button
+          className="secondary-button"
+          disabled={disabled || (!started && (unsupported || (microphone && !inputAvailable(w))))}
+          onClick={() => void (started ? w.pauseSharing() : w.activateShareSource(source))}
+        >
+          {w.audio.busy || w.sessionBusy
+            ? "准备中…"
+            : started
+              ? "暂停共享"
+              : microphone
+                ? "启用麦克风"
+                : w.sharePaused
+                  ? "恢复共享"
+                  : "重试共享"}
+        </Button>
+      )}
       {w.audio.snapshot?.listen.lastError && (
         <ErrorMessage message={w.audio.snapshot.listen.lastError} />
       )}
@@ -337,7 +289,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
     <section className="panel playback-panel player-audio-panel">
       <div className="panel-heading">
         <h2>{microphone ? "上传本机麦克风" : virtualMicrophone ? "作为电脑麦克风" : "本地播放"}</h2>
-        <StatusBadge label={audioStatusLabel(w, laneName)} />
+        <StatusBadge label={audioStatusLabel(w, laneName)} tone={audioStatusTone(w, laneName)} />
       </div>
       {microphoneAllowed && (
         <section className="player-direction-tabs" aria-label="收听设备音频方向">
@@ -440,40 +392,40 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
           <VolumeControl workbench={w} />
         </>
       )}
-      <div className="mobile-primary">
-        <Button
-          className={started ? "secondary-button" : "primary-button"}
-          disabled={
-            disabled ||
-            (!started &&
-              (!w.link.snapshot?.peers.length ||
-                (microphone ? !inputAvailable(w) : w.info.platform === "windows" && !validOutput)))
-          }
-          onClick={() =>
-            void (started
-              ? w.audio.stopLane(laneName)
-              : microphone
-                ? w.audio.requestMic(w.prefs.volume, w.prefs.inputDeviceId || undefined)
-                : w.audio.startListen({ outputDeviceId: outputDeviceId || undefined }))
-          }
-        >
-          {w.audio.busy
-            ? "处理中…"
-            : started
-              ? lane?.waiting
-                ? "取消等待"
-                : microphone
-                  ? "停止上传"
-                  : "停止收听"
-              : microphone
-                ? "申请上传麦克风"
-                : virtualMicrophone
-                  ? "开始接收"
-                  : "开始收听"}
-          <ArrowRightIcon size={18} weight="bold" />
-        </Button>
-        {lane?.waiting && <p>{microphone ? "等待对方批准" : "等待对方开始共享"}</p>}
-      </div>
+      {microphone ? (
+        <div className="mobile-primary">
+          <Button
+            className={started ? "secondary-button" : "primary-button"}
+            disabled={
+              disabled || (!started && (!w.link.snapshot?.peers.length || !inputAvailable(w)))
+            }
+            onClick={() =>
+              void (started
+                ? w.audio.stopLane("microphone")
+                : w.audio.requestMic(w.prefs.volume, w.prefs.inputDeviceId || undefined))
+            }
+          >
+            {w.audio.busy
+              ? "处理中…"
+              : started
+                ? lane?.waiting
+                  ? "取消申请"
+                  : "停止上传"
+                : "启用麦克风"}
+          </Button>
+          {lane?.waiting && <p>等待对方允许麦克风</p>}
+        </div>
+      ) : w.link.snapshot?.peers.length && !started && !w.connectionPending ? (
+        <div className="mobile-primary">
+          <Button
+            className="secondary-button"
+            disabled={disabled || !validOutput}
+            onClick={() => void w.retryListening()}
+          >
+            重试收听
+          </Button>
+        </div>
+      ) : null}
       {microphoneAllowed &&
         (microphone
           ? w.audio.snapshot?.listen.active || w.audio.snapshot?.listen.waiting
@@ -485,7 +437,7 @@ export function PlayerAudioPanel({ workbench: w }: { workbench: Workbench }) {
               disabled={disabled}
               onClick={() => void w.audio.stopLane(microphone ? "listen" : "microphone")}
             >
-              {microphone ? "停止收听" : "停止麦克风"}
+              {microphone ? "暂停收听" : "停止麦克风"}
             </Button>
           </div>
         )}
@@ -581,18 +533,20 @@ export function VirtualOutputSelector({ workbench: w }: { workbench: Workbench }
         {showOtherDevices ? "收起其他设备" : "使用其他虚拟设备"}
       </Button>
       {(showOtherDevices || w.prefs.microphoneRecordingDeviceId) && (
-        <DeviceChoice
-          id="microphone-recording"
-          label="录音端（手动配置）"
-          value={w.prefs.microphoneRecordingDeviceId}
-          devices={w.captureDevices.map((device) => ({
-            ...device,
-            name: `${device.name} · ${device.id.slice(-9, -1)}`,
-          }))}
-          defaultLabel="自动识别对应录音端"
-          disabled={disabled}
-          onChange={(microphoneRecordingDeviceId) => w.update({ microphoneRecordingDeviceId })}
-        />
+        <div className="virtual-recording-field">
+          <DeviceChoice
+            id="microphone-recording"
+            label="录音端（手动配置）"
+            value={w.prefs.microphoneRecordingDeviceId}
+            devices={w.captureDevices.map((device) => ({
+              ...device,
+              name: `${device.name} · ${device.id.slice(-9, -1)}`,
+            }))}
+            defaultLabel="自动识别对应录音端"
+            disabled={disabled}
+            onChange={(microphoneRecordingDeviceId) => w.update({ microphoneRecordingDeviceId })}
+          />
+        </div>
       )}
       <VirtualAudioGuide workbench={w} deviceId={value} />
       {w.deviceError && <ErrorMessage message={w.deviceError} />}
@@ -618,7 +572,10 @@ export function RemoteMicrophonePanel({ workbench: w }: { workbench: Workbench }
     <section className="panel microphone-requests remote-microphone-panel">
       <div className="panel-heading">
         <h2>接收远端麦克风</h2>
-        <StatusBadge label={audioStatusLabel(w, "microphone")} />
+        <StatusBadge
+          label={audioStatusLabel(w, "microphone")}
+          tone={audioStatusTone(w, "microphone")}
+        />
       </div>
       <VirtualOutputSelector workbench={w} />
       {requests.map((request) => (

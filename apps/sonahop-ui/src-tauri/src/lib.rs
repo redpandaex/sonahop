@@ -45,7 +45,6 @@ pub fn run() {
             link_commands::start_link,
             link_commands::stop_link,
             link_commands::connect_link,
-            link_commands::answer_link_request,
             link_commands::disconnect_link_peer,
             audio_commands::get_audio_snapshot,
             audio_commands::start_listening,

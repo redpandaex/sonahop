@@ -1,4 +1,4 @@
-//! SPAKE2 uses the Ed25519 group, not a home-grown PIN hash or a signing identity.
+//! Fresh anonymous X25519 keys bind each encrypted v3 session to its handshake.
 use crate::protocol::{self, Frame, Payload, VERSION};
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
@@ -7,41 +7,20 @@ use aes_gcm::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
-use spake2::{Ed25519Group, Identity, Password, Spake2};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
-pub(crate) const AUTH_ERROR: &str = "无法验证连接，请核对 PIN 或稍后重试";
-const CLIENT_ID: &[u8] = b"SonaHop/v2/client";
-const HOST_ID: &[u8] = b"SonaHop/v2/host";
+pub(crate) const AUTH_ERROR: &str = "无法建立加密连接，请稍后重试";
 const MAX_PLAINTEXT: usize = 2800;
 // Never allow a session to approach AES-GCM's per-key invocation limits.
 const MAX_COUNTER: u64 = 1 << 32;
 
-pub(crate) fn valid_pin(pin: &str) -> bool {
-    pin.len() == 6 && pin.bytes().all(|byte| byte.is_ascii_digit())
+pub(crate) fn ephemeral_start() -> (EphemeralSecret, [u8; 32]) {
+    let secret = EphemeralSecret::random();
+    let public = PublicKey::from(&secret).to_bytes();
+    (secret, public)
 }
-pub(crate) fn generate_pin() -> Result<String, String> {
-    loop {
-        let mut bytes = [0; 4];
-        getrandom::getrandom(&mut bytes).map_err(|_| "无法获取系统随机数".to_owned())?;
-        let value = u32::from_be_bytes(bytes);
-        if value < u32::MAX - u32::MAX % 1_000_000 {
-            return Ok(format!("{:06}", value % 1_000_000));
-        }
-    }
-}
-pub(crate) fn client_start(pin: &str) -> (Spake2<Ed25519Group>, Vec<u8>) {
-    Spake2::<Ed25519Group>::start_a(
-        &Password::new(pin.as_bytes()),
-        &Identity::new(CLIENT_ID),
-        &Identity::new(HOST_ID),
-    )
-}
-pub(crate) fn host_start(pin: &str) -> (Spake2<Ed25519Group>, Vec<u8>) {
-    Spake2::<Ed25519Group>::start_b(
-        &Password::new(pin.as_bytes()),
-        &Identity::new(CLIENT_ID),
-        &Identity::new(HOST_ID),
-    )
+pub(crate) fn decode_public_key(value: &str) -> Result<[u8; 32], String> {
+    decode(value, 32)?.try_into().map_err(|_| AUTH_ERROR.into())
 }
 pub(crate) fn encode(bytes: &[u8]) -> String {
     STANDARD.encode(bytes)
@@ -60,7 +39,6 @@ pub(crate) fn decode(value: &str, maximum: usize) -> Result<Vec<u8>, String> {
 pub(crate) struct SecureChannel {
     send: DirectionalCipher,
     receive: DirectionalCipher,
-    pub verification_code: String,
 }
 pub(crate) struct DirectionalCipher {
     cipher: Aes256Gcm,
@@ -70,42 +48,48 @@ pub(crate) struct DirectionalCipher {
 }
 impl SecureChannel {
     pub fn establish(
-        state: Spake2<Ed25519Group>,
-        client_message: &[u8],
-        host_message: &[u8],
+        state: EphemeralSecret,
+        client_message: &[u8; 32],
+        host_message: &[u8; 32],
         session_id: &str,
         client_name: &str,
         host_name: &str,
         host: bool,
     ) -> Result<Self, String> {
-        let remote = if host { client_message } else { host_message };
-        let mut secret = state.finish(remote).map_err(|_| AUTH_ERROR.to_owned())?;
+        let (local, remote) = if host {
+            (host_message, client_message)
+        } else {
+            (client_message, host_message)
+        };
+        if PublicKey::from(&state).as_bytes() != local {
+            return Err(AUTH_ERROR.into());
+        }
+        let secret = state.diffie_hellman(&PublicKey::from(*remote));
+        if !secret.was_contributory() {
+            return Err(AUTH_ERROR.into());
+        }
         let mut transcript = Sha256::new();
-        transcript.update(b"SonaHop SPAKE2 Ed25519 HKDF-SHA256 AES-256-GCM v2");
+        transcript.update(b"SonaHop X25519 HKDF-SHA256 AES-256-GCM v3");
         for field in [
             session_id.as_bytes(),
             client_name.as_bytes(),
             host_name.as_bytes(),
-            client_message,
-            host_message,
+            client_message.as_slice(),
+            host_message.as_slice(),
         ] {
             transcript.update((field.len() as u32).to_be_bytes());
             transcript.update(field);
         }
         let binding: [u8; 32] = transcript.finalize().into();
-        let hkdf = Hkdf::<Sha256>::new(Some(&binding), &secret);
-        secret.fill(0);
-        let mut material = [0; 76];
-        hkdf.expand(
-            b"SonaHop/v2/directional-keys-nonces-verification",
-            &mut material,
-        )
-        .map_err(|_| AUTH_ERROR.to_owned())?;
+        let hkdf = Hkdf::<Sha256>::new(Some(&binding), secret.as_bytes());
+        drop(secret);
+        let mut material = [0; 72];
+        hkdf.expand(b"SonaHop/v3/directional-keys-nonces", &mut material)
+            .map_err(|_| AUTH_ERROR.to_owned())?;
         let client_key = &material[..32];
         let host_key = &material[32..64];
         let client_prefix: [u8; 4] = material[64..68].try_into().map_err(|_| AUTH_ERROR)?;
         let host_prefix: [u8; 4] = material[68..72].try_into().map_err(|_| AUTH_ERROR)?;
-        let code: [u8; 4] = material[72..76].try_into().map_err(|_| AUTH_ERROR)?;
         let (send_key, receive_key, send_prefix, receive_prefix) = if host {
             (host_key, client_key, host_prefix, client_prefix)
         } else {
@@ -127,7 +111,6 @@ impl SecureChannel {
                 counter: 0,
                 binding,
             },
-            verification_code: format!("{:06}", u32::from_be_bytes(code) % 1_000_000),
         })
     }
     pub fn seal(&mut self, payload: &Payload) -> Result<Frame, String> {
@@ -137,7 +120,7 @@ impl SecureChannel {
         self.receive.open(frame)
     }
     pub fn session_tag(&self) -> String {
-        // Public handshake transcript digest; never key or PIN material.
+        // Public handshake transcript digest; never secret key material.
         self.send.binding[..8]
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -215,5 +198,155 @@ impl DirectionalCipher {
         let payload = serde_json::from_slice(&plaintext).map_err(|_| AUTH_ERROR.to_owned())?;
         self.counter += 1;
         Ok(payload)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SESSION_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+    fn channels(host_name_seen_by_client: &str) -> (SecureChannel, SecureChannel) {
+        let (client, client_key) = ephemeral_start();
+        let (host, host_key) = ephemeral_start();
+        let client = SecureChannel::establish(
+            client,
+            &client_key,
+            &host_key,
+            SESSION_ID,
+            "player",
+            host_name_seen_by_client,
+            false,
+        )
+        .unwrap();
+        let host = SecureChannel::establish(
+            host,
+            &client_key,
+            &host_key,
+            SESSION_ID,
+            "player",
+            "host",
+            true,
+        )
+        .unwrap();
+        (client, host)
+    }
+
+    fn copy_frame(frame: &Frame) -> Frame {
+        serde_json::from_slice(&serde_json::to_vec(frame).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn ephemeral_public_keys_are_fresh_and_exactly_sized() {
+        let (_, first) = ephemeral_start();
+        let (_, second) = ephemeral_start();
+        assert_ne!(first, second);
+        assert_eq!(decode_public_key(&encode(&first)).unwrap(), first);
+        for length in [0, 1, 31, 33, 64] {
+            assert!(decode_public_key(&encode(&vec![9; length])).is_err());
+        }
+        assert!(decode_public_key("invalid base64!").is_err());
+    }
+
+    #[test]
+    fn zero_and_low_order_public_keys_are_rejected() {
+        for remote in [[0; 32], {
+            let mut key = [0; 32];
+            key[0] = 1;
+            key
+        }] {
+            let (secret, local) = ephemeral_start();
+            assert!(
+                SecureChannel::establish(
+                    secret, &local, &remote, SESSION_ID, "player", "host", false,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn both_directions_confirm_and_exchange_encrypted_payloads() {
+        let (mut client, mut host) = channels("host");
+        assert_eq!(client.session_tag(), host.session_tag());
+        let confirm = client
+            .seal(&Payload::Confirm {
+                id: SESSION_ID.into(),
+            })
+            .unwrap();
+        assert!(matches!(host.open(confirm).unwrap(), Payload::Confirm { id } if id == SESSION_ID));
+        let accepted = host
+            .seal(&Payload::Accepted {
+                id: SESSION_ID.into(),
+                host_name: "host".into(),
+            })
+            .unwrap();
+        assert!(
+            matches!(client.open(accepted).unwrap(), Payload::Accepted { id, host_name } if id == SESSION_ID && host_name == "host")
+        );
+        let control = client
+            .seal(&Payload::Control {
+                payload: serde_json::json!({"kind":"start"}),
+            })
+            .unwrap();
+        assert!(
+            matches!(host.open(control).unwrap(), Payload::Control { payload } if payload["kind"] == "start")
+        );
+        let media = host
+            .seal(&Payload::Media {
+                payload: encode(&[1, 2, 3]),
+            })
+            .unwrap();
+        assert!(
+            matches!(client.open(media).unwrap(), Payload::Media { payload } if decode(&payload, 3).unwrap() == [1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn replay_and_reflection_are_rejected_without_consuming_the_next_counter() {
+        let (mut client, mut host) = channels("host");
+        let first = client.seal(&Payload::Ping).unwrap();
+        let replay = copy_frame(&first);
+        let reflection = copy_frame(&first);
+        assert!(client.open(reflection).is_err());
+        assert!(matches!(host.open(first).unwrap(), Payload::Ping));
+        assert!(host.open(replay).is_err());
+        let next = client.seal(&Payload::Pong).unwrap();
+        assert!(matches!(host.open(next).unwrap(), Payload::Pong));
+        let response = host.seal(&Payload::Pong).unwrap();
+        assert!(matches!(client.open(response).unwrap(), Payload::Pong));
+    }
+
+    #[test]
+    fn tampered_ciphertext_and_counter_are_rejected() {
+        let (mut client, mut host) = channels("host");
+        let original = client.seal(&Payload::Ping).unwrap();
+        let mut modified = copy_frame(&original);
+        let Frame::Encrypted { body, .. } = &mut modified else {
+            unreachable!()
+        };
+        let mut bytes = decode(body, MAX_PLAINTEXT + 16).unwrap();
+        bytes[0] ^= 1;
+        *body = encode(&bytes);
+        assert!(host.open(modified).is_err());
+        let mut wrong_counter = copy_frame(&original);
+        let Frame::Encrypted { counter, .. } = &mut wrong_counter else {
+            unreachable!()
+        };
+        *counter += 1;
+        assert!(host.open(wrong_counter).is_err());
+        assert!(matches!(host.open(original).unwrap(), Payload::Ping));
+    }
+
+    #[test]
+    fn changed_transcript_and_cross_session_frames_are_rejected() {
+        let (mut mismatched_client, mut mismatched_host) = channels("another host");
+        let frame = mismatched_client.seal(&Payload::Ping).unwrap();
+        assert!(mismatched_host.open(frame).is_err());
+        let (mut first_client, _) = channels("host");
+        let (_, mut another_host) = channels("host");
+        let frame = first_client.seal(&Payload::Ping).unwrap();
+        assert!(another_host.open(frame).is_err());
     }
 }

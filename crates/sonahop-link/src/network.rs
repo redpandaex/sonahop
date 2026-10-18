@@ -1,8 +1,8 @@
 use crate::protocol::{self, Frame, FrameReader, Payload, VERSION};
 use crate::{
-    CONTROL_PORT, ClientState, Command, DISCOVERY_PORT, Inner, LinkEvent, LinkPeer, LinkRequest,
-    LinkRole, MAX_MEDIA_BYTES, Outbound, channels, current, fail_service, finish_connection,
-    publish_connected, publish_payload, spawn,
+    CONTROL_PORT, Command, DISCOVERY_PORT, Inner, LinkEvent, LinkPeer, LinkRole, MAX_MEDIA_BYTES,
+    Outbound, channels, current, fail_service, finish_connection, publish_connected,
+    publish_payload, spawn,
 };
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
@@ -12,9 +12,8 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::watch;
 use tokio::time::{Duration, MissedTickBehavior, interval, sleep_until, timeout};
 
-const MAX_PENDING: usize = 4;
+const MAX_HANDSHAKES: usize = 4;
 const MAX_PEERS: usize = 2;
-const APPROVAL_TTL: Duration = Duration::from_secs(60);
 
 pub(crate) struct Sockets {
     udp: UdpSocket,
@@ -95,7 +94,7 @@ async fn accept_connections(
     listener: TcpListener,
     cancel: watch::Receiver<bool>,
 ) {
-    // Bound online guesses globally and per source; no long-lived trust or unbounded IP map.
+    // Bound handshake work globally and per source; keep the source map bounded.
     let mut auth_window = Instant::now();
     let mut attempts = std::collections::HashMap::<Ipv4Addr, u8>::new();
     let mut total_attempts = 0_u8;
@@ -132,16 +131,16 @@ async fn accept_connections(
             || source_attempts >= 5
             || (attempts.len() >= 32 && source_attempts == 0)
         {
-            // Close without starting another cryptographic task; clients report the same generic auth failure.
+            // Close without starting another cryptographic task.
             continue;
         }
         total_attempts += 1;
         attempts.insert(address, source_attempts + 1);
         let id = uuid::Uuid::new_v4().to_string();
         let (control, outbound) = channels();
-        let (name, pin) = {
+        let name = {
             let mut state = inner.lock();
-            if !current(&state, generation) {
+            if !current(&state, generation) || state.stopping {
                 return;
             }
             if state
@@ -149,22 +148,19 @@ async fn accept_connections(
                 .values()
                 .filter(|control| !control.connected)
                 .count()
-                >= MAX_PENDING
+                >= MAX_HANDSHAKES
             {
                 continue;
             }
-            let Some(pin) = state.snapshot.pairing_code.clone() else {
-                return;
-            };
             state.controls.insert(id.clone(), control);
-            (state.snapshot.local_name.clone(), pin)
+            state.snapshot.local_name.clone()
         };
         let task_inner = inner.clone();
         let task_cancel = cancel.clone();
         spawn(&inner, generation, async move {
             let result = tokio::select! {
                 _ = cancelled(task_cancel) => Ok(()),
-                result = host_session(task_inner.clone(), generation, &id, &name, pin, address, stream, outbound) => result,
+                result = host_session(task_inner.clone(), generation, &id, &name, address, stream, outbound) => result,
             };
             finish_connection(&task_inner, generation, &id, result.err());
         });
@@ -183,7 +179,6 @@ async fn encrypted_write<W: AsyncWrite + Unpin>(
 async fn host_handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     id: &str,
     host_name: &str,
-    pin: String,
     reader: &mut FrameReader<R>,
     writer: &mut W,
 ) -> Result<(crate::crypto::SecureChannel, String), String> {
@@ -191,7 +186,7 @@ async fn host_handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     let Frame::Hello {
         version: VERSION,
         name,
-        spake,
+        ephemeral_key,
     } = hello
     else {
         return Err(crate::crypto::AUTH_ERROR.into());
@@ -199,16 +194,15 @@ async fn host_handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     if !protocol::valid_name(&name) {
         return Err(crate::crypto::AUTH_ERROR.into());
     }
-    let client_message = crate::crypto::decode(&spake, 64)?;
-    let (state, host_message) = crate::crypto::host_start(&pin);
-    drop(pin);
+    let client_message = crate::crypto::decode_public_key(&ephemeral_key)?;
+    let (state, host_message) = crate::crypto::ephemeral_start();
     protocol::write(
         writer,
         &Frame::Auth {
             version: VERSION,
             id: id.to_owned(),
             host_name: host_name.to_owned(),
-            spake: crate::crypto::encode(&host_message),
+            ephemeral_key: crate::crypto::encode(&host_message),
         },
     )
     .await?;
@@ -232,7 +226,6 @@ async fn host_session(
     generation: u64,
     id: &str,
     host_name: &str,
-    pin: String,
     address: Ipv4Addr,
     stream: TcpStream,
     mut outbound: Outbound,
@@ -242,86 +235,37 @@ async fn host_session(
     let mut reader = FrameReader::new(reader);
     let authentication = timeout(
         Duration::from_secs(10),
-        host_handshake(id, host_name, pin, &mut reader, &mut writer),
+        host_handshake(id, host_name, &mut reader, &mut writer),
     )
     .await;
     let (mut secure, name) = match authentication {
         Ok(Ok(authenticated)) => authenticated,
-        _ => {
+        result => {
+            let reason = match result {
+                Ok(Err(error)) if error == protocol::VERSION_ERROR => error,
+                _ => crate::crypto::AUTH_ERROR.to_owned(),
+            };
+            inner.diagnostics.log(
+                "handshake-rejected",
+                serde_json::json!({"peerId":id,"reason":reason}),
+            );
             let _ = protocol::write(
                 &mut writer,
                 &Frame::Rejected {
                     version: VERSION,
-                    reason: crate::crypto::AUTH_ERROR.into(),
+                    reason: reason.clone(),
                 },
             )
             .await;
+            if reason == protocol::VERSION_ERROR {
+                return Err(reason);
+            }
             return Ok(());
         }
     };
-    let verification_code = secure.verification_code.clone();
-    let pending_since = tokio::time::Instant::now();
-    {
-        let mut state = inner.lock();
-        if !current(&state, generation) {
-            return Ok(());
-        }
-        let Some(control) = state.controls.get_mut(id) else {
-            return Ok(());
-        };
-        control.approval_deadline = Some(Instant::now() + APPROVAL_TTL);
-        state.snapshot.requests.push(LinkRequest {
-            id: id.to_owned(),
-            name: name.clone(),
-            address: address.to_string(),
-            verification_code: verification_code.clone(),
-        });
-    }
-    encrypted_write(
-        &mut writer,
-        &mut secure,
-        &Payload::Pending {
-            id: id.to_owned(),
-            host_name: host_name.to_owned(),
-            verification_code,
-        },
-    )
-    .await?;
-    let approve = tokio::select! {
-        _ = sleep_until(pending_since + APPROVAL_TTL) => {
-            encrypted_write(&mut writer, &mut secure, &Payload::Rejected { reason: "连接请求已超过 60 秒".into() }).await?;
-            return Ok(());
-        }
-        command = outbound.commands.recv() => match command {
-            Some(Command::Answer(approve)) => approve,
-            _ => return Ok(()),
-        },
-        frame = reader.read() => match secure.open(frame?)? {
-            Payload::Bye => return Ok(()),
-            _ => return Err("确认前收到了非预期控制帧".into()),
-        },
-    };
-    let rejection = if pending_since.elapsed() >= APPROVAL_TTL {
-        Some("连接请求已超过 60 秒")
-    } else if !approve {
-        Some("服务器已拒绝连接请求")
-    } else {
-        None
-    };
-    if let Some(reason) = rejection {
-        encrypted_write(
-            &mut writer,
-            &mut secure,
-            &Payload::Rejected {
-                reason: reason.into(),
-            },
-        )
-        .await?;
-        return Ok(());
-    }
     let capacity = {
         let mut state = inner.lock();
-        if !current(&state, generation) {
+        if !current(&state, generation) || state.stopping {
             return Ok(());
         }
         if state
@@ -335,7 +279,6 @@ async fn host_session(
         } else if let Some(control) = state.controls.get_mut(id) {
             // Reserve capacity before the acceptance write; send APIs also require a published peer.
             control.connected = true;
-            control.approval_deadline = None;
             true
         } else {
             return Ok(());
@@ -370,7 +313,8 @@ async fn host_session(
             address: address.to_string(),
         },
     ) {
-        return Ok(());
+        // Acceptance may race a local stop; give an already accepted peer a graceful end.
+        return encrypted_write(&mut writer, &mut secure, &Payload::Bye).await;
     }
     connected(
         &inner,
@@ -390,58 +334,43 @@ pub(crate) async fn client_connection(
     id: String,
     name: String,
     address: SocketAddrV4,
-    pin: String,
     outbound: Outbound,
     cancel: watch::Receiver<bool>,
 ) {
     let result = tokio::select! {
         _ = cancelled(cancel) => Ok(()),
-        result = client_session(inner.clone(), generation, &id, &name, address, pin, outbound) => result,
+        result = client_session(inner.clone(), generation, &id, &name, address, outbound) => result,
     };
     finish_connection(&inner, generation, &id, result.err());
 }
 
-async fn client_session(
-    inner: Arc<Inner>,
-    generation: u64,
-    id: &str,
+async fn client_handshake<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     name: &str,
-    address: SocketAddrV4,
-    pin: String,
-    mut outbound: Outbound,
-) -> Result<(), String> {
-    let stream = timeout(Duration::from_secs(5), crate::interfaces::connect(address))
-        .await
-        .map_err(|_| "连接服务器 超时，请检查地址与防火墙")?
-        .map_err(|error| format!("无法连接服务器：{error}"))?;
-    configure_socket(&stream)?;
-    let (reader, mut writer) = stream.into_split();
-    let mut reader = FrameReader::new(reader);
-    let (state, client_message) = crate::crypto::client_start(&pin);
-    drop(pin);
+    reader: &mut FrameReader<R>,
+    writer: &mut W,
+) -> Result<(crate::crypto::SecureChannel, String), String> {
+    let (state, client_message) = crate::crypto::ephemeral_start();
     protocol::write(
-        &mut writer,
+        writer,
         &Frame::Hello {
             version: VERSION,
             name: name.to_owned(),
-            spake: crate::crypto::encode(&client_message),
+            ephemeral_key: crate::crypto::encode(&client_message),
         },
     )
-    .await
-    .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?;
-    let response = timeout(Duration::from_secs(10), reader.read())
-        .await
-        .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?
-        .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?;
-    let (remote_id, host_name, host_message) = match response {
+    .await?;
+    let (remote_id, host_name, host_message) = match reader.read().await? {
         Frame::Auth {
             version: VERSION,
             id,
             host_name,
-            spake,
-        } if protocol::valid_id(&id) && protocol::valid_name(&host_name) => {
-            (id, host_name, crate::crypto::decode(&spake, 64)?)
-        }
+            ephemeral_key,
+        } if protocol::valid_id(&id) && protocol::valid_name(&host_name) => (
+            id,
+            host_name,
+            crate::crypto::decode_public_key(&ephemeral_key)?,
+        ),
+        Frame::Rejected { reason, .. } => return Err(display_reason(&reason)),
         _ => return Err(crate::crypto::AUTH_ERROR.into()),
     };
     let mut secure = crate::crypto::SecureChannel::establish(
@@ -454,44 +383,14 @@ async fn client_session(
         false,
     )?;
     encrypted_write(
-        &mut writer,
+        writer,
         &mut secure,
         &Payload::Confirm {
             id: remote_id.clone(),
         },
     )
-    .await
-    .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?;
-    let pending_frame = timeout(Duration::from_secs(10), reader.read())
-        .await
-        .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?
-        .map_err(|_| crate::crypto::AUTH_ERROR.to_owned())?;
-    let pending = secure.open(pending_frame)?;
-    let verification_code = match pending {
-        Payload::Pending {
-            id,
-            host_name: pending_name,
-            verification_code,
-        } if id == remote_id
-            && pending_name == host_name
-            && verification_code == secure.verification_code =>
-        {
-            verification_code
-        }
-        _ => return Err(crate::crypto::AUTH_ERROR.into()),
-    };
-    {
-        let mut state = inner.lock();
-        if !current(&state, generation) {
-            return Ok(());
-        }
-        state.snapshot.client_state = ClientState::AwaitingApproval;
-        state.snapshot.verification_code = Some(verification_code);
-    }
-    let frame = timeout(APPROVAL_TTL + Duration::from_secs(1), reader.read())
-        .await
-        .map_err(|_| "服务器确认已超时，请重新连接")??;
-    match secure.open(frame)? {
+    .await?;
+    match secure.open(reader.read().await?)? {
         Payload::Accepted {
             id: accepted_id,
             host_name: accepted_name,
@@ -499,6 +398,30 @@ async fn client_session(
         Payload::Rejected { reason } => return Err(display_reason(&reason)),
         _ => return Err("服务器返回了非预期确认消息".into()),
     }
+    Ok((secure, host_name))
+}
+
+async fn client_session(
+    inner: Arc<Inner>,
+    generation: u64,
+    id: &str,
+    name: &str,
+    address: SocketAddrV4,
+    mut outbound: Outbound,
+) -> Result<(), String> {
+    let stream = timeout(Duration::from_secs(5), crate::interfaces::connect(address))
+        .await
+        .map_err(|_| "连接服务器超时，请检查地址与防火墙")?
+        .map_err(|error| format!("无法连接服务器：{error}"))?;
+    configure_socket(&stream)?;
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = FrameReader::new(reader);
+    let (mut secure, host_name) = timeout(
+        Duration::from_secs(10),
+        client_handshake(name, &mut reader, &mut writer),
+    )
+    .await
+    .map_err(|_| "加密连接握手超过 10 秒，请重新连接")??;
     if !publish_connected(
         &inner,
         generation,
@@ -508,7 +431,7 @@ async fn client_session(
             address: address.ip().to_string(),
         },
     ) {
-        return Ok(());
+        return encrypted_write(&mut writer, &mut secure, &Payload::Bye).await;
     }
     connected(
         &inner,
@@ -634,8 +557,7 @@ async fn send_loop<W: AsyncWrite + Unpin>(
         tokio::select! {
             biased;
             command=outbound.commands.recv()=>match command {
-                Some(Command::Disconnect)|None=>{let _=send_packet(inner,id,writer,cipher,&Payload::Bye,stats).await;return Ok(());},
-                Some(Command::Answer(_))=>{},
+                Some(Command::Disconnect)|None=>return send_packet(inner,id,writer,cipher,&Payload::Bye,stats).await,
             },
             reply=replies.recv()=>{let Some(reply)=reply else{return Ok(());};send_packet(inner,id,writer,cipher,&reply,stats).await?;},
             _=heartbeat.tick()=>send_packet(inner,id,writer,cipher,&Payload::Ping,stats).await?,
@@ -680,7 +602,15 @@ async fn receive_loop<R: AsyncRead + Unpin>(
                         if last_pong.is_none_or(|sent|sent.elapsed()>=Duration::from_millis(500)){let _=replies.try_send(Payload::Pong);last_pong=Some(Instant::now());}
                     },
                     Payload::Pong=>{heartbeats+=1;if heartbeats>16{return Err("心跳消息发送过于频繁".into());}},
-                    Payload::Bye=>return Ok(()),
+                    Payload::Bye=>{
+                        let mut state=inner.lock();
+                        if current(&state,generation) {
+                            if let Some(control)=state.controls.get_mut(id) {
+                                control.remote_stop_received=true;
+                            }
+                        }
+                        return Ok(());
+                    },
                     Payload::Control {payload}=>{
                         controls+=1;if controls>32{return Err("控制消息发送过于频繁".into());}
                         protocol::validate_control(&payload)?;

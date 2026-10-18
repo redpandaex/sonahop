@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { ArrowClockwiseIcon, CopyIcon, FileTextIcon } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { CopyIcon, ArrowClockwiseIcon, FileTextIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ErrorMessage } from "./controls";
 import { nativeLinkAvailable } from "../lib/link-bridge";
+import { ErrorMessage } from "./controls";
 
 interface DiagnosticReport {
   logPath: string | null;
@@ -60,7 +60,7 @@ export function DiagnosticSettings() {
         <FileTextIcon size={18} weight="bold" />
       </div>
       <p className="field-help">
-        断开后读取日志，可查看连接结束原因、收发统计和发送耗时。日志不包含 PIN、密钥或录音。
+        断开后读取日志，可查看连接结束原因、收发统计和发送耗时。日志不包含密钥或录音。
       </p>
       <div className="diagnostic-actions">
         <Button

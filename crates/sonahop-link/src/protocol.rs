@@ -5,7 +5,8 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{Duration, timeout};
 
-pub(crate) const VERSION: u8 = 2;
+pub(crate) const VERSION: u8 = 3;
+pub(crate) const VERSION_ERROR: &str = "连接协议版本不兼容，请将两端更新到同一版本";
 pub(crate) const MAX_UDP: usize = 1024;
 pub(crate) const MAX_CONTROL: usize = 2048;
 const MAX_FRAME: usize = 4096;
@@ -35,13 +36,13 @@ pub(crate) enum Frame {
     Hello {
         version: u8,
         name: String,
-        spake: String,
+        ephemeral_key: String,
     },
     Auth {
         version: u8,
         id: String,
         host_name: String,
-        spake: String,
+        ephemeral_key: String,
     },
     Rejected {
         version: u8,
@@ -61,30 +62,14 @@ pub(crate) enum Frame {
     deny_unknown_fields
 )]
 pub(crate) enum Payload {
-    Confirm {
-        id: String,
-    },
-    Pending {
-        id: String,
-        host_name: String,
-        verification_code: String,
-    },
-    Accepted {
-        id: String,
-        host_name: String,
-    },
-    Rejected {
-        reason: String,
-    },
+    Confirm { id: String },
+    Accepted { id: String, host_name: String },
+    Rejected { reason: String },
     Ping,
     Pong,
     Bye,
-    Control {
-        payload: Value,
-    },
-    Media {
-        payload: String,
-    },
+    Control { payload: Value },
+    Media { payload: String },
 }
 pub(crate) fn valid_name(name: &str) -> bool {
     !name.trim().is_empty() && name.chars().count() <= 64 && !name.chars().any(char::is_control)
@@ -143,6 +128,20 @@ pub(crate) fn validate_control(payload: &Value) -> Result<(), String> {
     bounded_json(payload, MAX_CONTROL).map(|_| ())
 }
 
+fn decode_frame(payload: &[u8]) -> Result<Frame, String> {
+    // Inspect the wire version before strict v3 fields: v2 has a different key field.
+    #[derive(Deserialize)]
+    struct FrameVersion {
+        version: u64,
+    }
+    let envelope: FrameVersion =
+        serde_json::from_slice(payload).map_err(|_| "控制帧格式不正确".to_owned())?;
+    if envelope.version != u64::from(VERSION) {
+        return Err(VERSION_ERROR.into());
+    }
+    serde_json::from_slice(payload).map_err(|_| "控制帧格式不正确".to_owned())
+}
+
 /// read() is cancellation-safe; partial prefixes and bodies survive select! ticks.
 /// Announced length is rejected before any payload allocation.
 pub(crate) struct FrameReader<R> {
@@ -170,7 +169,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
                 .await
                 .map_err(|error| format!("连接读取失败：{error}"))?;
             if size == 0 {
-                return Err("对方已关闭连接".into());
+                return Err("连接已关闭".into());
             }
             self.header_read += size;
         }
@@ -188,12 +187,11 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
                 .await
                 .map_err(|error| format!("连接读取失败：{error}"))?;
             if size == 0 {
-                return Err("对方已关闭连接".into());
+                return Err("连接已关闭".into());
             }
             self.payload_read += size;
         }
-        let frame =
-            serde_json::from_slice(&self.payload).map_err(|_| "控制帧格式不正确".to_owned());
+        let frame = decode_frame(&self.payload);
         self.header_read = 0;
         self.payload.clear();
         self.payload_read = 0;
@@ -214,4 +212,36 @@ pub(crate) async fn write<W: AsyncWrite + Unpin>(
     .await
     .map_err(|_| "连接连续发送阻塞超过 2 秒，请检查网络；已结束会话".to_owned())?
     .map_err(|error| format!("连接写入失败：{error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_handshake_reports_version_before_changed_key_fields() {
+        for payload in [
+            br#"{"type":"hello","version":2,"name":"player","spake":"old"}"#.as_slice(),
+            br#"{"type":"auth","version":2,"id":"old-id","hostName":"host","spake":"old"}"#
+                .as_slice(),
+        ] {
+            assert!(matches!(decode_frame(payload), Err(error) if error == VERSION_ERROR));
+        }
+    }
+
+    #[test]
+    fn v3_frames_require_the_new_key_field_and_reject_unknown_fields() {
+        assert!(matches!(
+            decode_frame(br#"{"type":"hello","version":3,"name":"player","ephemeralKey":"key"}"#).unwrap(),
+            Frame::Hello { version: VERSION, ephemeral_key, .. } if ephemeral_key == "key"
+        ));
+        for payload in [
+            br#"{"type":"hello","version":3,"name":"player","spake":"old"}"#.as_slice(),
+            br#"{"type":"hello","version":3,"name":"player","ephemeralKey":"key","spake":"old"}"#
+                .as_slice(),
+            br#"{"type":"hello","name":"player","ephemeralKey":"key"}"#.as_slice(),
+        ] {
+            assert!(decode_frame(payload).is_err());
+        }
+    }
 }

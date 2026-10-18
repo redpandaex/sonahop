@@ -41,6 +41,7 @@ pub async fn stop_link(
     gate: State<'_, OperationGate>,
 ) -> Result<(), String> {
     let _guard = gate.0.lock().await;
+    service.begin_stop();
     let stopped = audio.stop().await;
     service.stop().await;
     if let Some(error) = stopped.last_error {
@@ -52,24 +53,12 @@ pub async fn stop_link(
 pub async fn connect_link(
     address: String,
     port: u16,
-    pairing_code: String,
     service: State<'_, Arc<LinkService>>,
     gate: State<'_, OperationGate>,
 ) -> Result<(), String> {
     supported()?;
     let _guard = gate.0.lock().await;
-    service.connect(address, port, pairing_code).await
-}
-#[tauri::command]
-pub async fn answer_link_request(
-    request_id: String,
-    approve: bool,
-    service: State<'_, Arc<LinkService>>,
-    gate: State<'_, OperationGate>,
-) -> Result<(), String> {
-    supported()?;
-    let _guard = gate.0.lock().await;
-    service.answer_request(&request_id, approve)
+    service.connect(address, port).await
 }
 #[tauri::command]
 pub async fn disconnect_link_peer(

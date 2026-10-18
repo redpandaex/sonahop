@@ -17,11 +17,12 @@
 - Microphone monitoring/mixing and feedback suppression remain deferred. The owner confirmed phone-mic playback through PC Type-C headphones is normal; do not misclassify that scenario as virtual-device failure.
 - Use existing user-installed virtual endpoints with explicit playback/recording pairing. Never install/bundle drivers, select physical speakers as virtual microphones, change OS defaults, VPN/routes/firewall, or depend on AudioRelay proprietary interfaces.
 - Windows autostart defaults off and changes only through the user's toggle.
+- Windows tray: persistent close-to-tray/exit choice, live status header/icon/tooltip, and native actions while hidden. Host Start shares system audio; Stop ends capture, all peers and discovery. Client Connect opens device selection; Disconnect ends audio/connection and resumes discovery. Generic tray share never starts a microphone. Serialize operations, reject superseded UI commands, and update native menus only outside OperationGate. Missing tray/failed hide falls back to normal exit.
 
 ## Current interaction and lifecycle
 - Wire protocol v3 uses fresh anonymous X25519, transcript-bound HKDF and directional AES-GCM. No PIN or connection approval; encryption does not authenticate device identity.
 - Preserve handshake/rate/frame bounds, atomic two-peer reservations, counter/replay protection and explicit remote microphone approval.
-- Discovery starts automatically with the app/role. Player connect waits for a real peer before one-shot listen; disconnect stops its lanes.
+- Discovery starts automatically with the app/role. Explicit tray StopSharing stays stopped until a user starts sharing again. Player connect waits for a real peer before one-shot listen; disconnect stops its lanes.
 - Hosts prepare system/app audio by default; Android consent remains mandatory. A saved microphone choice does not start capture automatically.
 - Host pause/source changes retain listener subscriptions and the receiver's existing sink. Reset only the decoder for the authorized new stream; discard old stream packets/PCM. Full/notification stop is terminal.
 - Record Local/Remote/Failed stop reasons before audio teardown. Allow all existing controls, including pending handshakes, at most two seconds for Bye before generation shutdown.
@@ -37,8 +38,8 @@
 - Use scripts/build-audio-mvp.ps1 for Windows/Android packaging. The symbol-link fallback may use only the library from that same successful Rust build.
 - Keep signing material in ignored local paths and pass passwords through environment names; never print, commit or upload secrets. Android release signing uses the existing fixed certificate.
 - Release v0.5.4 uses wire protocol v3, incompatible with published v0.5.3. Both devices need v0.5.4 or a current local wire-v3 build.
-- Local delivery records, checksums and signed packages are under artifacts/ui-simplified. Earlier folders are historical. Owner reported successful physical checks; retain exact acceptance boundaries in the stage plan.
-- The owner explicitly authorized preparing the next patch version and creating/pushing its release tag on main. Keep existing tags unchanged and use the fixed Android signing certificate.
+- Latest stateful Windows tray EXE/NSIS and delivery records are under artifacts/windows-tray-actions; artifacts/windows-tray is the superseded Stop-audio preview. Latest local Android signed packages remain under artifacts/ui-simplified. Current tray interactions await owner validation.
+- The owner accepted the local tray preview and explicitly authorized committing/pushing the tray work to main and triggering the next patch Release (v0.5.5). Keep existing tags unchanged and use the configured fixed Android signing certificate.
 - Release workflow runs only on version-tag pushes whose commit belongs to main history, with fixed Android signing. The earlier automatic CI-retry authorization ended when v0.5.3 was published.
 - Preserve build dependencies, target-platform assets, current user data and signing keys when pruning generated/unused files.
 

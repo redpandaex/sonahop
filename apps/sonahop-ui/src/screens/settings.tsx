@@ -1,15 +1,22 @@
+import {
+  ArrowLeftIcon,
+  CircleHalfIcon,
+  MonitorIcon,
+  MoonIcon,
+  SunIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ErrorMessage } from "../components/controls";
 import { DiagnosticSettings } from "../components/diagnostic-settings";
-import {
-  SunIcon,
-  MoonIcon,
-  CircleHalfIcon,
-  ArrowLeftIcon,
-  MonitorIcon,
-} from "@phosphor-icons/react";
-import type { Workbench } from "../lib/use-workbench";
 import type { ThemePreference } from "../lib/preferences";
+import type { Workbench } from "../lib/use-workbench";
 
 export function SettingsScreen({
   workbench: w,
@@ -65,7 +72,7 @@ export function SettingsScreen({
       {!mobile && w.info.platform === "windows" && (
         <section className="panel settings-panel">
           <div className="panel-heading">
-            <h2>Windows 启动</h2>
+            <h2>Windows</h2>
             <MonitorIcon size={18} weight="bold" />
           </div>
           <div className="setting-row">
@@ -92,6 +99,33 @@ export function SettingsScreen({
                       : "已关闭"}
             </Button>
           </div>
+          <div className="setting-row">
+            <h3 id="close-behavior-label">关闭主窗口时</h3>
+            <Select
+              value={w.desktop.settings?.closeBehavior ?? "tray"}
+              disabled={!w.desktop.available || !w.desktop.settings || w.desktop.busy}
+              onValueChange={(value) => {
+                if (value === "tray" || value === "exit") void w.desktop.change(value);
+              }}
+            >
+              <SelectTrigger
+                className="desktop-close-select"
+                aria-labelledby="close-behavior-label"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value="tray" disabled={w.desktop.settings?.trayAvailable === false}>
+                  收起到托盘
+                </SelectItem>
+                <SelectItem value="exit">直接退出</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {w.desktop.settings?.trayAvailable === false && (
+            <p className="field-help">托盘不可用，关闭窗口将退出。</p>
+          )}
+          {w.desktop.error && <ErrorMessage message={w.desktop.error} />}
           {w.autostart.enabled && <p className="field-help">移动程序后需重新设置启动项。</p>}
           {w.autostart.error && <ErrorMessage message={w.autostart.error} />}
         </section>

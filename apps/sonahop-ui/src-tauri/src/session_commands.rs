@@ -10,11 +10,13 @@ pub struct OperationGate(pub tokio::sync::Mutex<()>);
 #[tauri::command]
 pub async fn switch_connection_role(
     role: LinkRole,
+    stop_revision: Option<u64>,
     gate: State<'_, OperationGate>,
     link: State<'_, Arc<LinkService>>,
     audio: State<'_, Arc<AudioService>>,
 ) -> Result<LinkSnapshot, String> {
     let _guard = gate.0.lock().await;
+    audio.check_command_revision(stop_revision)?;
     if link.snapshot().role == role && audio.snapshot().role == role {
         return Ok(link.snapshot());
     }

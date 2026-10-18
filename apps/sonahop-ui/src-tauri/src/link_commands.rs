@@ -19,11 +19,14 @@ pub fn get_link_snapshot(service: State<'_, Arc<LinkService>>) -> Result<LinkSna
 #[tauri::command]
 pub async fn start_link(
     name: String,
+    stop_revision: Option<u64>,
+    audio: State<'_, Arc<AudioService>>,
     service: State<'_, Arc<LinkService>>,
     gate: State<'_, OperationGate>,
 ) -> Result<LinkSnapshot, String> {
     supported()?;
     let _guard = gate.0.lock().await;
+    audio.check_command_revision(stop_revision)?;
     let name = if name.trim().is_empty() {
         std::env::var("COMPUTERNAME")
             .ok()
@@ -36,11 +39,13 @@ pub async fn start_link(
 }
 #[tauri::command]
 pub async fn stop_link(
+    stop_revision: Option<u64>,
     service: State<'_, Arc<LinkService>>,
     audio: State<'_, Arc<AudioService>>,
     gate: State<'_, OperationGate>,
 ) -> Result<(), String> {
     let _guard = gate.0.lock().await;
+    audio.check_command_revision(stop_revision)?;
     service.begin_stop();
     let stopped = audio.stop().await;
     service.stop().await;
@@ -53,20 +58,26 @@ pub async fn stop_link(
 pub async fn connect_link(
     address: String,
     port: u16,
+    stop_revision: Option<u64>,
+    audio: State<'_, Arc<AudioService>>,
     service: State<'_, Arc<LinkService>>,
     gate: State<'_, OperationGate>,
 ) -> Result<(), String> {
     supported()?;
     let _guard = gate.0.lock().await;
+    audio.check_command_revision(stop_revision)?;
     service.connect(address, port).await
 }
 #[tauri::command]
 pub async fn disconnect_link_peer(
     peer_id: String,
+    stop_revision: Option<u64>,
+    audio: State<'_, Arc<AudioService>>,
     service: State<'_, Arc<LinkService>>,
     gate: State<'_, OperationGate>,
 ) -> Result<(), String> {
     supported()?;
     let _guard = gate.0.lock().await;
+    audio.check_command_revision(stop_revision)?;
     service.disconnect_peer(&peer_id)
 }

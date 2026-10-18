@@ -25,14 +25,15 @@ export interface LinkSnapshot {
 }
 export const nativeLinkAvailable = () => isTauri();
 export const getLinkSnapshot = () => invoke<LinkSnapshot>("get_link_snapshot");
-export const switchConnectionRole = (role: "host" | "client") =>
-  invoke<LinkSnapshot>("switch_connection_role", { role });
-export const startLink = (name: string) => invoke<LinkSnapshot>("start_link", { name });
-export const stopLink = () => invoke<void>("stop_link");
-export const connectLink = (address: string, port: number) =>
-  invoke<void>("connect_link", { address, port });
-export const disconnectLinkPeer = (peerId: string) =>
-  invoke<void>("disconnect_link_peer", { peerId });
+export const switchConnectionRole = (role: "host" | "client", stopRevision = 0) =>
+  invoke<LinkSnapshot>("switch_connection_role", { role, stopRevision });
+export const startLink = (name: string, stopRevision = 0) =>
+  invoke<LinkSnapshot>("start_link", { name, stopRevision });
+export const stopLink = (stopRevision = 0) => invoke<void>("stop_link", { stopRevision });
+export const connectLink = (address: string, port: number, stopRevision = 0) =>
+  invoke<void>("connect_link", { address, port, stopRevision });
+export const disconnectLinkPeer = (peerId: string, stopRevision = 0) =>
+  invoke<void>("disconnect_link_peer", { peerId, stopRevision });
 
 export async function ensureNetworkAccess(platform: Platform): Promise<string> {
   if (platform !== "android") return "";

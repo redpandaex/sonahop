@@ -12,6 +12,8 @@ import type { AudioMode, ConnectionRole, Preferences } from "./preferences";
 import { PREFERENCES_KEY, readPreferences, savePreferences } from "./preferences";
 import { useAudio } from "./use-audio";
 import { useAutostart } from "./use-autostart";
+import { useDesktopSession } from "./use-desktop-session";
+import { useDesktopSettings } from "./use-desktop-settings";
 import { useLink } from "./use-link";
 import { useSessionActions } from "./use-session-actions";
 
@@ -38,15 +40,20 @@ export function useWorkbench() {
   const [captureError, setCaptureError] = useState("");
   const [appError, setAppError] = useState("");
   const [appReady, setAppReady] = useState(false);
-  const link = useLink(info.platform, appReady);
-  const audio = useAudio(info.platform, appReady);
+  const [roleError, setRoleError] = useState("");
+  const clearRoleError = useCallback(() => setRoleError(""), []);
+  const audio = useAudio(info.platform, appReady, clearRoleError);
+  const link = useLink(info.platform, appReady, audio.snapshot?.stopRevision ?? 0, clearRoleError);
+  const desktopSession = useDesktopSession(info.platform, appReady);
   const autostart = useAutostart(info.platform, appReady);
+  const desktop = useDesktopSettings(info.platform, appReady);
   const micOutputDeviceId = prefs.microphoneOutputDeviceId;
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleReady, setRoleReady] = useState(!nativeLinkAvailable());
-  const [roleError, setRoleError] = useState("");
   const roleGate = useRef(false);
   const initialized = useRef(false);
+  const desktopRevision = useRef(0);
+  desktopRevision.current = desktopSession.snapshot?.revision ?? 0;
   const mounted = useRef(true);
   const deviceRevision = useRef(0);
   const [saved, setSaved] = useState(true);
@@ -87,6 +94,7 @@ export function useWorkbench() {
     info,
     role,
     roleReady,
+    desktopSession: desktopSession.snapshot,
     prefs,
     devices,
     captureDevices,
@@ -106,6 +114,8 @@ export function useWorkbench() {
         return true;
       }
       if (!link.available || !audio.available) return false;
+      const revision = desktopRevision.current;
+      const current = () => mounted.current && desktopRevision.current === revision;
       roleGate.current = true;
       setRoleBusy(true);
       setRoleReady(false);
@@ -116,16 +126,17 @@ export function useWorkbench() {
           throw new Error("连接角色切换失败，请查看连接错误并重试。");
         if (!(await audio.refresh()))
           throw new Error("角色已切换，但音频状态读取失败。请重试角色切换。");
+        if (!current()) return false;
         update({ connectionRole: next });
         if (!(await link.start())) throw new Error("自动发现启动失败，请检查本地网络授权并重试。");
-        if (mounted.current) {
+        if (current()) {
           update({ connectionRole: next });
           setRoleReady(true);
           location.hash = "workspace";
         }
         return true;
       } catch (error) {
-        if (mounted.current) setRoleError(String(error));
+        if (current()) setRoleError(String(error));
         return false;
       } finally {
         roleGate.current = false;
@@ -143,11 +154,58 @@ export function useWorkbench() {
     ],
   );
   useEffect(() => {
-    if (!appReady || !link.snapshot || initialized.current || !link.native) return;
+    if (!appReady || !desktopSession.ready || !link.snapshot || initialized.current || !link.native)
+      return;
     initialized.current = true;
+    if (desktopSession.snapshot?.revision) return;
     const initialRole = prefs.connectionRole ?? (info.platform === "android" ? "client" : "host");
     void switchRole(initialRole);
-  }, [appReady, link.snapshot, link.native, prefs.connectionRole, info.platform, switchRole]);
+  }, [
+    appReady,
+    desktopSession.ready,
+    desktopSession.snapshot,
+    link.snapshot,
+    link.native,
+    prefs.connectionRole,
+    info.platform,
+    switchRole,
+  ]);
+
+  useEffect(() => {
+    const session = desktopSession.snapshot;
+    if (!session?.revision) return;
+    let active = true;
+    initialized.current = true;
+    clearClientIntent();
+    link.cancelPending();
+    audio.cancelPending();
+    setRoleReady(false);
+    setRoleError(session.error ?? "");
+    if (!session.busy) {
+      void Promise.all([link.synchronize(), audio.synchronize()]).then(() => {
+        if (!active) return;
+        if (session.role)
+          update({
+            connectionRole: session.role,
+            ...(session.action === "startSharing" && !session.error
+              ? { sendSource: "system" as const }
+              : {}),
+          });
+        setRoleReady(true);
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [
+    desktopSession.snapshot,
+    clearClientIntent,
+    link.cancelPending,
+    audio.cancelPending,
+    link.synchronize,
+    audio.synchronize,
+    update,
+  ]);
 
   const switchMode = useCallback(
     async (mode: AudioMode) => {
@@ -261,10 +319,11 @@ export function useWorkbench() {
     link,
     audio,
     autostart,
+    desktop,
     role,
-    roleBusy,
+    roleBusy: roleBusy || desktopSession.snapshot?.busy === true,
     roleReady,
-    roleError,
+    roleError: desktopSession.error || roleError,
     switchRole,
     switchMode,
     stopLink,

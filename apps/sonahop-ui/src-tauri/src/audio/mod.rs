@@ -7,6 +7,8 @@ use sonahop_link::{LinkRole, LinkService};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::AppHandle;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 use tauri::async_runtime::JoinHandle;
 use workers::{Worker, WorkerMode};
 
@@ -61,6 +63,7 @@ pub struct LaneSnapshot {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioSnapshot {
+    pub stop_revision: u64,
     pub role: LinkRole,
     pub send_source: AudioSource,
     pub remote_source: Option<AudioSource>,
@@ -198,6 +201,7 @@ impl LaneState {
     }
 }
 struct State {
+    stop_revision: u64,
     role: LinkRole,
     send_source: AudioSource,
     input_device_id: Option<String>,
@@ -244,6 +248,7 @@ impl State {
         let listening = listen.active || listen.waiting;
         let mic = microphone.active || microphone.waiting;
         AudioSnapshot {
+            stop_revision: self.stop_revision,
             role: self.role,
             send_source: self.send_source,
             remote_source: self.remote_source,
@@ -333,6 +338,7 @@ impl AudioService {
                 app,
                 link,
                 state: Mutex::new(State {
+                    stop_revision: 0,
                     role,
                     send_source: AudioSource::System,
                     input_device_id: None,
@@ -390,6 +396,31 @@ impl AudioService {
     pub fn snapshot(&self) -> AudioSnapshot {
         self.shared.lock().snapshot()
     }
+    #[cfg(target_os = "windows")]
+    pub fn invalidate_pending_starts(&self) -> u64 {
+        let mut state = self.shared.lock();
+        state.stop_revision = state.stop_revision.saturating_add(1);
+        state.stop_revision
+    }
+
+    pub fn check_command_revision(&self, revision: Option<u64>) -> Result<(), String> {
+        if revision.unwrap_or(0) != self.shared.lock().stop_revision {
+            return Err("操作已取消，请重新操作。".into());
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(controller) = self
+            .shared
+            .app
+            .try_state::<Arc<crate::tray::TrayController>>()
+        {
+            if controller.is_busy() {
+                return Err("托盘操作正在进行，请稍后重试。".into());
+            }
+            controller.clear_error();
+        }
+        Ok(())
+    }
+
     pub fn set_gain(&self, gain: u8) -> Result<AudioSnapshot, String> {
         if gain > 100 {
             return Err("麦克风增益范围应为 0–100".into());

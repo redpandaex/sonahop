@@ -819,6 +819,10 @@ p {
   border-bottom: 0;
   padding-bottom: 0;
 }
+.desktop-close-select {
+  width: 190px;
+  flex-shrink: 0;
+}
 .setting-row h3 {
   font-size: 12px;
 }

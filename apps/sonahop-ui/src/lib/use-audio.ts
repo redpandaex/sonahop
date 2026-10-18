@@ -13,7 +13,7 @@ import {
 import type { Platform } from "./bridge";
 import { nativeLinkAvailable } from "./link-bridge";
 
-export function useAudio(platform: Platform, appReady: boolean) {
+export function useAudio(platform: Platform, appReady: boolean, onAction?: () => void) {
   const available =
     nativeLinkAvailable() && appReady && (platform === "windows" || platform === "android");
   const [snapshot, setSnapshot] = useState<AudioSnapshot | null>(null);
@@ -89,13 +89,14 @@ export function useAudio(platform: Platform, appReady: boolean) {
       const lifetime = lifecycle.current;
       const version = ++revision.current;
       const active = () => lifecycle.current === lifetime && revision.current === version;
+      onAction?.();
       mutating.current = true;
       setBusy(true);
       setOperationError("");
       try {
         const value = await operation();
         if (active()) acceptSnapshot(value);
-        return true;
+        return active();
       } catch (error) {
         if (active()) setOperationError(String(error));
         try {
@@ -110,11 +111,12 @@ export function useAudio(platform: Platform, appReady: boolean) {
         if (active()) setBusy(false);
       }
     },
-    [available, acceptSnapshot],
+    [available, acceptSnapshot, onAction],
   );
 
   const refresh = useCallback(() => perform(getAudioSnapshot), [perform]);
   const snapshotRole = snapshot?.role;
+  const stopRevision = snapshot?.stopRevision ?? 0;
   const startListen = useCallback(
     (options: ListenOptions = {}, prepared = false) =>
       perform(async () => {
@@ -130,32 +132,60 @@ export function useAudio(platform: Platform, appReady: boolean) {
               : "listen",
           );
         if (snapshotRole === "host" && source === "microphone" && options.gain !== undefined)
-          await setAudioGain(options.gain);
-        return startListening(options);
+          await setAudioGain(options.gain, stopRevision);
+        return startListening(options, stopRevision);
       }),
-    [perform, platform, snapshotRole],
+    [perform, platform, snapshotRole, stopRevision],
   );
   const requestMic = useCallback(
     (gain: number, inputDeviceId?: string) =>
       perform(async () => {
         await prepareAudio(platform, "microphone");
-        await setAudioGain(gain);
-        return requestMicrophone(inputDeviceId);
+        await setAudioGain(gain, stopRevision);
+        return requestMicrophone(inputDeviceId, stopRevision);
       }),
-    [perform, platform],
+    [perform, platform, stopRevision],
   );
   const answerMic = useCallback(
     (peerId: string, requestId: string, approve: boolean, outputDeviceId: string | null) =>
-      perform(() => answerMicrophoneRequest(peerId, requestId, approve, outputDeviceId)),
-    [perform],
+      perform(() =>
+        answerMicrophoneRequest(peerId, requestId, approve, outputDeviceId, stopRevision),
+      ),
+    [perform, stopRevision],
   );
-  const stop = useCallback(() => perform(stopAudio), [perform]);
+  const stop = useCallback(() => perform(() => stopAudio(stopRevision)), [perform, stopRevision]);
   const stopLane = useCallback(
-    (lane: "listen" | "microphone") => perform(() => stopAudioLane(lane)),
-    [perform],
+    (lane: "listen" | "microphone") => perform(() => stopAudioLane(lane, stopRevision)),
+    [perform, stopRevision],
   );
-  const setGain = useCallback((gain: number) => perform(() => setAudioGain(gain)), [perform]);
+  const setGain = useCallback(
+    (gain: number) => perform(() => setAudioGain(gain, stopRevision)),
+    [perform, stopRevision],
+  );
+  const cancelPending = useCallback(() => {
+    revision.current += 1;
+    setOperationError("");
+    setBusy(false);
+  }, []);
+  const synchronize = useCallback(async () => {
+    const lifetime = lifecycle.current;
+    if (!available || !lifetime) return false;
+    const version = ++revision.current;
+    try {
+      const value: AudioSnapshot = await getAudioSnapshot();
+      if (lifecycle.current !== lifetime || revision.current !== version) return false;
+      acceptSnapshot(value);
+      setOperationError("");
+      setBusy(false);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [available, acceptSnapshot]);
+
   return {
+    cancelPending,
+    synchronize,
     snapshot,
     available,
     busy,

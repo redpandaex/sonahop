@@ -1,9 +1,14 @@
 mod audio;
 mod audio_commands;
 mod commands;
+mod desktop;
 mod diagnostics_commands;
 mod link_commands;
 mod session_commands;
+#[cfg(target_os = "windows")]
+mod tray;
+#[cfg(target_os = "windows")]
+mod tray_presentation;
 use audio::AudioService;
 use sonahop_link::{LinkRole, LinkService};
 use std::sync::Arc;
@@ -33,10 +38,23 @@ pub fn run() {
             let audio = Arc::new(AudioService::new(app.handle().clone(), link, role));
             audio.start_events();
             app.manage(audio);
+            #[cfg(target_os = "windows")]
+            {
+                app.manage(desktop::DesktopSettings::load(app.handle())?);
+                if let Err(error) = tray::install(app.handle()) {
+                    app.state::<Arc<LinkService>>().log_event(
+                        "tray-unavailable",
+                        serde_json::json!({ "reason": error.to_string() }),
+                    );
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
+            desktop::get_desktop_settings,
+            desktop::get_desktop_session,
+            desktop::set_close_behavior,
             diagnostics_commands::get_diagnostics,
             commands::list_playback_devices,
             commands::list_capture_devices,
@@ -57,6 +75,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to start SonaHop");
     app.run(|handle, event| {
+        #[cfg(target_os = "windows")]
+        if matches!(
+            &event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            tray::begin_exit(handle);
+        }
+        #[cfg(target_os = "windows")]
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } = &event
+        {
+            tray::close_requested(handle, label, api);
+        }
         if matches!(
             event,
             tauri::RunEvent::Exit
@@ -68,6 +102,18 @@ pub fn run() {
             let cleanup_handle = handle.clone();
             let cleanup = async move {
                 let handle = cleanup_handle;
+                #[cfg(target_os = "windows")]
+                let gate = handle.state::<session_commands::OperationGate>();
+                #[cfg(target_os = "windows")]
+                let _guard = {
+                    handle
+                        .state::<Arc<AudioService>>()
+                        .invalidate_pending_starts();
+                    gate.0.lock().await
+                };
+                if let Some(link) = handle.try_state::<Arc<LinkService>>() {
+                    link.begin_stop();
+                }
                 if let Some(audio) = handle.try_state::<Arc<AudioService>>() {
                     audio.stop().await;
                 }

@@ -12,6 +12,7 @@ export interface LaneSnapshot {
   peakLevel: number;
 }
 export interface AudioSnapshot {
+  stopRevision: number;
   sendSource: SendSource;
   remoteSource: SendSource | null;
   remoteMicrophoneSupported: boolean | null;
@@ -37,26 +38,33 @@ export interface ListenOptions {
   outputDeviceId?: string;
   gain?: number;
 }
-export const startListening = ({ source, inputDeviceId, outputDeviceId }: ListenOptions = {}) =>
-  invoke<AudioSnapshot>("start_listening", { source, inputDeviceId, outputDeviceId });
-export const requestMicrophone = (inputDeviceId?: string) =>
-  invoke<AudioSnapshot>("request_microphone", { inputDeviceId });
+export const startListening = (
+  { source, inputDeviceId, outputDeviceId }: ListenOptions = {},
+  stopRevision = 0,
+) =>
+  invoke<AudioSnapshot>("start_listening", { source, inputDeviceId, outputDeviceId, stopRevision });
+export const requestMicrophone = (inputDeviceId?: string, stopRevision = 0) =>
+  invoke<AudioSnapshot>("request_microphone", { inputDeviceId, stopRevision });
 export const answerMicrophoneRequest = (
   peerId: string,
   requestId: string,
   approve: boolean,
   outputDeviceId: string | null,
+  stopRevision = 0,
 ) =>
   invoke<AudioSnapshot>("answer_microphone_request", {
     peerId,
     requestId,
     approve,
     outputDeviceId,
+    stopRevision,
   });
-export const stopAudio = () => invoke<AudioSnapshot>("stop_audio");
-export const stopAudioLane = (lane: AudioMode) =>
-  invoke<AudioSnapshot>("stop_audio_lane", { lane });
-export const setAudioGain = (gain: number) => invoke<AudioSnapshot>("set_audio_gain", { gain });
+export const stopAudio = (stopRevision = 0) =>
+  invoke<AudioSnapshot>("stop_audio", { stopRevision });
+export const stopAudioLane = (lane: AudioMode, stopRevision = 0) =>
+  invoke<AudioSnapshot>("stop_audio_lane", { lane, stopRevision });
+export const setAudioGain = (gain: number, stopRevision = 0) =>
+  invoke<AudioSnapshot>("set_audio_gain", { gain, stopRevision });
 
 export async function prepareAudio(
   platform: Platform,

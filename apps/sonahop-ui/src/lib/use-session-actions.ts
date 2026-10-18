@@ -4,6 +4,7 @@ import { prepareAudio } from "./audio-bridge";
 import type { AppInfo, PlaybackDevice } from "./bridge";
 import type { ConnectionRole, Preferences, SendSource } from "./preferences";
 import type { useAudio } from "./use-audio";
+import type { DesktopSession } from "./use-desktop-session";
 import type { useLink } from "./use-link";
 import { virtualMicrophoneReady } from "./virtual-audio";
 
@@ -11,6 +12,7 @@ interface SessionContext {
   info: AppInfo;
   role: ConnectionRole;
   roleReady: boolean;
+  desktopSession: DesktopSession | null;
   prefs: Preferences;
   devices: PlaybackDevice[];
   captureDevices: PlaybackDevice[];
@@ -27,6 +29,7 @@ export function useSessionActions({
   info,
   role,
   roleReady,
+  desktopSession,
   prefs,
   devices,
   captureDevices,
@@ -44,7 +47,11 @@ export function useSessionActions({
   const connectGate = useRef(false);
   const shareGate = useRef(false);
   const hostAttempted = useRef(false);
+  const observedStopRevision = useRef(0);
+  const observedDesktop = useRef<DesktopSession | null>(null);
   const currentRole = useRef(role);
+  const desktopRevision = useRef(0);
+  desktopRevision.current = desktopSession?.revision ?? 0;
   currentRole.current = role;
 
   useEffect(() => {
@@ -60,6 +67,22 @@ export function useSessionActions({
     setListenIntent(null);
     setSessionError("");
   }, []);
+
+  useEffect(() => {
+    const revision = audio.snapshot?.stopRevision ?? 0;
+    if (revision === observedStopRevision.current && desktopSession === observedDesktop.current)
+      return;
+    observedStopRevision.current = revision;
+    observedDesktop.current = desktopSession;
+    if (!revision && !desktopSession?.revision) return;
+    clearClientIntent();
+    hostAttempted.current = true;
+    setSharePaused(
+      desktopSession?.action !== "startSharing" ||
+        desktopSession.busy ||
+        Boolean(desktopSession.error),
+    );
+  }, [audio.snapshot?.stopRevision, desktopSession, clearClientIntent]);
 
   const listenOptions = useCallback((): ListenOptions => {
     if (info.platform !== "windows") return {};
@@ -179,14 +202,11 @@ export function useSessionActions({
 
   const activateShareSource = useCallback(
     async (source: SendSource) => {
-      if (
-        shareGate.current ||
-        role !== "host" ||
-        !roleReady ||
-        !audio.available ||
-        !link.snapshot?.running
-      )
+      if (shareGate.current || role !== "host" || !roleReady || !audio.available || !link.available)
         return false;
+      const revision = desktopRevision.current;
+      const current = () =>
+        mounted.current && currentRole.current === "host" && desktopRevision.current === revision;
       shareGate.current = true;
       hostAttempted.current = true;
       setSharePreparing(true);
@@ -202,23 +222,27 @@ export function useSessionActions({
           )
         )
           throw new Error("请选择可用的本机麦克风。");
+        if (!link.snapshot?.running && !(await link.start())) {
+          throw new Error("局域网发现启动失败，请重试。");
+        }
+        if (!current()) return false;
         const lane = audio.snapshot?.listen;
         if ((lane?.active || lane?.waiting) && audio.snapshot?.sendSource === source) {
           setSharePaused(false);
           return true;
         }
         if ((lane?.active || lane?.waiting) && !(await audio.stopLane("listen"))) return false;
-        if (!mounted.current || currentRole.current !== "host") return false;
+        if (!current()) return false;
         update({ sendSource: source });
         const started = await audio.startListen({
           source,
           inputDeviceId: prefs.inputDeviceId || undefined,
           gain: prefs.volume,
         });
-        if (mounted.current && started) setSharePaused(false);
+        if (current() && started) setSharePaused(false);
         return started;
       } catch (error) {
-        if (mounted.current) setSessionError(String(error));
+        if (current()) setSessionError(String(error));
         return false;
       } finally {
         shareGate.current = false;
@@ -233,6 +257,8 @@ export function useSessionActions({
       audio.stopLane,
       audio.startListen,
       link.snapshot?.running,
+      link.available,
+      link.start,
       info.systemCaptureSupported,
       info.platform,
       captureDevices,
@@ -247,7 +273,8 @@ export function useSessionActions({
       hostAttempted.current = false;
       return;
     }
-    if (!audio.available || !audio.snapshot || audio.busy || hostAttempted.current) return;
+    if (!audio.available || !audio.snapshot || audio.busy || sharePaused || hostAttempted.current)
+      return;
     hostAttempted.current = true;
     setSharePaused(false);
     // Restoring a saved microphone selection must never restore recording automatically.
@@ -260,6 +287,7 @@ export function useSessionActions({
     audio.available,
     audio.snapshot,
     audio.busy,
+    sharePaused,
     prefs.sendSource,
     info.systemCaptureSupported,
     activateShareSource,

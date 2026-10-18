@@ -14,7 +14,12 @@ import {
 
 type LinkOperation = (publish: (value: LinkSnapshot) => void) => Promise<LinkSnapshot | void>;
 
-export function useLink(platform: Platform, appReady: boolean) {
+export function useLink(
+  platform: Platform,
+  appReady: boolean,
+  stopRevision = 0,
+  onAction?: () => void,
+) {
   const native = nativeLinkAvailable();
   const available = native && appReady && (platform === "windows" || platform === "android");
   const [snapshot, setSnapshot] = useState<LinkSnapshot | null>(null);
@@ -96,6 +101,7 @@ export function useLink(platform: Platform, appReady: boolean) {
       const publish = (value: LinkSnapshot) => {
         if (active()) acceptSnapshot(value);
       };
+      onAction?.();
       mutating.current = true;
       setBusy(true);
       setOperationError("");
@@ -103,7 +109,7 @@ export function useLink(platform: Platform, appReady: boolean) {
         const result = await operation(publish);
         const value = result ?? (await getLinkSnapshot());
         publish(value);
-        return true;
+        return active();
       } catch (error) {
         if (active()) setOperationError(String(error));
         // A failed command can still change backend state (for example a refused connection).
@@ -118,37 +124,60 @@ export function useLink(platform: Platform, appReady: boolean) {
         if (active()) setBusy(false);
       }
     },
-    [available, acceptSnapshot],
+    [available, acceptSnapshot, onAction],
   );
 
   const start = useCallback(
     () =>
       perform(async () => {
         const name = await ensureNetworkAccess(platform);
-        return startLink(name);
+        return startLink(name, stopRevision);
       }),
-    [perform, platform],
+    [perform, platform, stopRevision],
   );
   const changeRole = useCallback(
-    (role: "host" | "client") => perform(() => switchConnectionRole(role)),
-    [perform],
+    (role: "host" | "client") => perform(() => switchConnectionRole(role, stopRevision)),
+    [perform, stopRevision],
   );
-  const stop = useCallback(() => perform(stopLink), [perform]);
+  const stop = useCallback(() => perform(() => stopLink(stopRevision)), [perform, stopRevision]);
   const connect = useCallback(
     (address: string, port: number) =>
       perform(async (publish) => {
         const name = await ensureNetworkAccess(platform);
-        if (!currentSnapshot.current?.running) publish(await startLink(name));
-        await connectLink(address, port);
+        if (!currentSnapshot.current?.running) publish(await startLink(name, stopRevision));
+        await connectLink(address, port, stopRevision);
       }),
-    [perform, platform],
+    [perform, platform, stopRevision],
   );
   const disconnect = useCallback(
-    (peerId: string) => perform(() => disconnectLinkPeer(peerId)),
-    [perform],
+    (peerId: string) => perform(() => disconnectLinkPeer(peerId, stopRevision)),
+    [perform, stopRevision],
   );
 
+  const cancelPending = useCallback(() => {
+    revision.current += 1;
+    setOperationError("");
+    setBusy(false);
+  }, []);
+  const synchronize = useCallback(async () => {
+    const lifetime = lifecycle.current;
+    if (!available || !lifetime) return false;
+    const version = ++revision.current;
+    try {
+      const value: LinkSnapshot = await getLinkSnapshot();
+      if (lifecycle.current !== lifetime || revision.current !== version) return false;
+      acceptSnapshot(value);
+      setOperationError("");
+      setBusy(false);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [available, acceptSnapshot]);
+
   return {
+    cancelPending,
+    synchronize,
     snapshot,
     available,
     native,

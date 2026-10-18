@@ -41,13 +41,13 @@ Secrets 未配置时 workflow 会早期失败，不发布 Windows 或 debug APK�
    - apps/sonahop-ui/package.json
    - apps/sonahop-ui/src-tauri/Cargo.toml
    - apps/sonahop-ui/src-tauri/tauri.conf.json
-3. 在待发布的 main 提交上创建并推送 tag。以 v0.5.4 为例：
+3. 在待发布的 main 提交上创建并推送 tag。以 v0.5.5 为例：
 
     git switch main
     git fetch origin main
     git merge --ff-only origin/main
-    git tag -a v0.5.4 -m "SonaHop 0.5.4"
-    git push origin v0.5.4
+    git tag -a v0.5.5 -m "SonaHop 0.5.5"
+    git push origin v0.5.5
 
 4. 等 GitHub Actions 的 Release workflow 完成，再从 Releases 下载。当前支持三个二进制产物，所有平台成功后才公开发布。
 
@@ -63,7 +63,7 @@ CI 使用 Rust 1.99.0、Node 24、pnpm 11.25.0、JDK 21、Android SDK platforms;
 
 它只生成 unsigned Release APK；签名脚本读取环境中的 ANDROID_KEYSTORE_PATH、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD：
 
-    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.4
+    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.5
 
 签名工具先拒绝 debuggable APK，再做 16KiB ZIP 对齐、v2/v3 签名和验证。签名密码只以环境变量名称传给工具，临时 keystore 不上传；CI 完成或失败都会清除临时文件。
 

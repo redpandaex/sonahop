@@ -37,7 +37,7 @@
 - Use the real pinned pnpm CLI (11.25.0), not a wrapper setting pm_on_fail=ignore. Preserve frozen-lockfile checks and CLI-generated package-manager lock metadata.
 - Use scripts/build-audio-mvp.ps1 for Windows/Android packaging. The symbol-link fallback may use only the library from that same successful Rust build.
 - Keep signing material in ignored local paths and pass passwords through environment names; never print, commit or upload secrets. Android release signing uses the existing fixed certificate.
-- Release v0.5.4 uses wire protocol v3, incompatible with published v0.5.3. Both devices need v0.5.4 or a current local wire-v3 build.
+- Releases v0.5.4+ use wire protocol v3, incompatible with published v0.5.3. Both devices must use compatible wire-v3 builds; the tray release does not change the wire protocol.
 - Latest stateful Windows tray EXE/NSIS and delivery records are under artifacts/windows-tray-actions; artifacts/windows-tray is the superseded Stop-audio preview. Latest local Android signed packages remain under artifacts/ui-simplified. Current tray interactions await owner validation.
 - The owner accepted the local tray preview and explicitly authorized committing/pushing the tray work to main and triggering the next patch Release (v0.5.5). Keep existing tags unchanged and use the configured fixed Android signing certificate.
 - Release workflow runs only on version-tag pushes whose commit belongs to main history, with fixed Android signing. The earlier automatic CI-retry authorization ended when v0.5.3 was published.

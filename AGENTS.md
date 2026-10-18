@@ -36,9 +36,9 @@
 - Use the real pinned pnpm CLI (11.25.0), not a wrapper setting pm_on_fail=ignore. Preserve frozen-lockfile checks and CLI-generated package-manager lock metadata.
 - Use scripts/build-audio-mvp.ps1 for Windows/Android packaging. The symbol-link fallback may use only the library from that same successful Rust build.
 - Keep signing material in ignored local paths and pass passwords through environment names; never print, commit or upload secrets. Android release signing uses the existing fixed certificate.
-- Published v0.5.3 uses the old wire protocol; current local wire-v3 builds also retain version0.5.3. Both devices need the current local build.
+- Release v0.5.4 uses wire protocol v3, incompatible with published v0.5.3. Both devices need v0.5.4 or a current local wire-v3 build.
 - Local delivery records, checksums and signed packages are under artifacts/ui-simplified. Earlier folders are historical. Owner reported successful physical checks; retain exact acceptance boundaries in the stage plan.
-- Current owner instruction authorizes final review, removal of proven-unneeded files, and committing/pushing this work on main. It does not authorize a version bump, tag or remote Release.
+- The owner explicitly authorized preparing the next patch version and creating/pushing its release tag on main. Keep existing tags unchanged and use the fixed Android signing certificate.
 - Release workflow runs only on version-tag pushes whose commit belongs to main history, with fixed Android signing. The earlier automatic CI-retry authorization ended when v0.5.3 was published.
 - Preserve build dependencies, target-platform assets, current user data and signing keys when pruning generated/unused files.
 

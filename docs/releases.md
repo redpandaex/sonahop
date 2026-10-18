@@ -30,7 +30,7 @@ Windows x64 免安装 exe、NSIS 安装器、Android ARM64 正式 APK、SHA256SU
 
 GITHUB_TOKEN 由 GitHub Actions 自动提供，无需手动添加。
 
-Secrets 未配置时 workflow 会早期失败，不发布 Windows 或 debug APK。后续持续使用同一份 keystore，避免覆盖更新失败。当前本地测试 APK 使用另一把 debug 签名；首次安装新正式 APK 需要卸载旧 debug 包，其本地应用配置会清除。
+Secrets 未配置时 workflow 会早期失败，不发布 Windows 或 debug APK。后续持续使用同一份 keystore，避免覆盖更新失败。当前 artifacts/ui-simplified 下的本地 APK 已使用固定正式签名；若设备上仍是早期 debug 包，首次安装正式 APK 需要卸载旧包，其本地应用配置会清除。
 
 [Android 签名文档](https://developer.android.com/studio/publish/app-signing)
 
@@ -41,12 +41,13 @@ Secrets 未配置时 workflow 会早期失败，不发布 Windows 或 debug APK�
    - apps/sonahop-ui/package.json
    - apps/sonahop-ui/src-tauri/Cargo.toml
    - apps/sonahop-ui/src-tauri/tauri.conf.json
-3. 在待发布的 main 提交上创建并推送 tag。第一次当前版本示例：
+3. 在待发布的 main 提交上创建并推送 tag。以 v0.5.4 为例：
 
     git switch main
-    git pull --ff-only origin main
-    git tag -a v0.5.3 -m "SonaHop 0.5.3"
-    git push origin v0.5.3
+    git fetch origin main
+    git merge --ff-only origin/main
+    git tag -a v0.5.4 -m "SonaHop 0.5.4"
+    git push origin v0.5.4
 
 4. 等 GitHub Actions 的 Release workflow 完成，再从 Releases 下载。当前支持三个二进制产物，所有平台成功后才公开发布。
 
@@ -62,7 +63,7 @@ CI 使用 Rust 1.99.0、Node 24、pnpm 11.25.0、JDK 21、Android SDK platforms;
 
 它只生成 unsigned Release APK；签名脚本读取环境中的 ANDROID_KEYSTORE_PATH、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD：
 
-    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.3
+    ./scripts/release/sign-android.ps1 -InputApk artifacts/release-build/sonahop-android-arm64-release-unsigned.apk -OutputApk artifacts/release-build/sonahop-android-arm64-release.apk -Version 0.5.4
 
 签名工具先拒绝 debuggable APK，再做 16KiB ZIP 对齐、v2/v3 签名和验证。签名密码只以环境变量名称传给工具，临时 keystore 不上传；CI 完成或失败都会清除临时文件。
 
